@@ -1,0 +1,35 @@
+[Unit]
+Description=Bird Corroborator companion service
+Documentation=file:/opt/bird-corroborator/README.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=birdcorroborator
+Group=birdcorroborator
+WorkingDirectory=/opt/bird-corroborator
+EnvironmentFile=/opt/bird-corroborator/.env
+ExecStart=/opt/bird-corroborator/.venv/bin/uvicorn app.main:app --host ${API_HOST} --port ${API_PORT} --workers 1
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+KillSignal=SIGTERM
+
+# BirdNET-Go is the primary workload. These controls deliberately deprioritize this service.
+Nice=10
+CPUWeight=20
+MemoryMax=256M
+TasksMax=64
+
+# The database is the only application path that needs runtime writes.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/bird-corroborator/data
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

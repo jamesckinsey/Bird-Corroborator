@@ -1,0 +1,18 @@
+[project]
+name = "bird-corroborator"
+version = "1.0.0"
+description = "LAN service that corroborates BirdNET-Go detections with BirdWeather"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "sqlalchemy>=2.0,<3",
+  "pydantic-settings>=2.5,<3", "httpx>=0.27,<1", "tenacity>=9,<10"
+]
+[project.scripts]
+bird-corroborator-maintenance = "app.cli:main"
+[project.optional-dependencies]
+test = ["pytest>=8,<9", "pytest-asyncio>=0.24,<1"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+[tool.setuptools.packages.find]
+include = ["app*"]
