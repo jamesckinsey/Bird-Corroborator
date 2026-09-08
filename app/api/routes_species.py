@@ -9,6 +9,18 @@ from app.images.presentation import image_fields,image_map
 from app.corroboration.scorer import score_detection
 router=APIRouter(prefix="/species")
 RANK={None:0,"UNVERIFIED":1,"POSSIBLE":2,"LIKELY":3,"STRONGLY_CORROBORATED":4}
+def display_score(raw_score:int|None)->int|None:
+    if raw_score is None:return None
+    return max(1,min(10,int(raw_score/10+.5)))
+def score_band(score:int|None)->str:
+    if score is None:return "pending"
+    if score>=9:return "very-high"
+    if score>=7:return "high"
+    if score>=5:return "medium"
+    if score>=3:return "low"
+    return "very-low"
+def summary_sort_key(item:SpeciesSummary):
+    return (item.best_corroboration_score is not None,item.best_corroboration_score or -1,item.local_detection_count,item.latest_detection)
 @router.get("/today",response_model=list[SpeciesSummary])
 async def today(request:Request,session:Session=Depends(db)):
     return summaries(request,session)
@@ -23,5 +35,5 @@ def summaries(request:Request,session:Session):
         if recalculated and (g["best_corroboration_score"] is None or recalculated.score>g["best_corroboration_score"]):g["best_corroboration_score"]=recalculated.score;g["best_corroboration_level"]=recalculated.level
         g["stations"].update(m.station_id for m in independent);g["observations"].update(m.source_detection_id for m in independent)
     images=image_map(session,groups)
-    output=[SpeciesSummary(**{**{k:v for k,v in g.items() if k not in {"stations","observations"}},"nearby_unique_stations":len(g["stations"]),"nearby_total_detections":len(g["observations"]),**image_fields(images.get(g["species_scientific"]))}) for g in groups.values()]
-    return sorted(output,key=lambda item:item.latest_detection,reverse=True)
+    output=[SpeciesSummary(**{**{k:v for k,v in g.items() if k not in {"stations","observations"}},"display_corroboration_score":display_score(g["best_corroboration_score"]),"nearby_unique_stations":len(g["stations"]),"nearby_total_detections":len(g["observations"]),**image_fields(images.get(g["species_scientific"]))}) for g in groups.values()]
+    return sorted(output,key=summary_sort_key,reverse=True)

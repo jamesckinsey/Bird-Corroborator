@@ -86,6 +86,8 @@ Before `docker compose up`, set the published BirdNET-Go port and coordinates in
 
 Open `http://birdpi:8000/` for the dashboard or `http://birdpi:8000/docs` for API documentation. Main API routes include `/api/v1/status`, `/api/v1/detections/today`, `/api/v1/detections/latest?limit=20`, `/api/v1/species/today`, and `/api/v1/nearby/today`.
 
+The Today landing page is an information-dense species summary sorted by corroboration strength, then local detection count, then latest detection. The stored and backward-compatible API score remains 0–100. Species summaries also expose `display_corroboration_score`, calculated by half-up rounding the raw score divided by ten and clamping it to 1–10; pending results remain `null` and appear last.
+
 ## Validation and routine operations
 
 The healthcheck calls `/api/v1/status` inside the container. A response proves the HTTP service and SQLite status route operate; BirdNET-Go or BirdWeather may still be reported as temporarily degraded in the JSON.

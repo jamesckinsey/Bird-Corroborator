@@ -7,7 +7,7 @@ from sqlalchemy import func,select
 from sqlalchemy.orm import Session
 from app.api.dependencies import db
 from app.api.routes_detections import query_rows,serialize
-from app.api.routes_species import summaries
+from app.api.routes_species import score_band,summaries
 from app.db.models import LocalDetection,SpeciesImage
 from app.images.presentation import image_fields,image_map
 templates=Jinja2Templates(directory=str(Path(__file__).resolve().parents[1]/"templates"))
@@ -16,7 +16,7 @@ def context(request,**values):return {"request":request,"now":datetime.now(timez
 
 @router.get("/")
 async def dashboard(request:Request,session:Session=Depends(db)):
-    return templates.TemplateResponse(request,"species.html",context(request,species=summaries(request,session),settings=request.app.state.settings))
+    return templates.TemplateResponse(request,"species.html",context(request,species=summaries(request,session),settings=request.app.state.settings,score_band=score_band))
 
 @router.get("/detections")
 async def detections_page(request:Request,limit:int=Query(50,ge=1,le=200),session:Session=Depends(db)):
@@ -25,7 +25,7 @@ async def detections_page(request:Request,limit:int=Query(50,ge=1,le=200),sessio
 
 @router.get("/species")
 async def species_page(request:Request,session:Session=Depends(db)):
-    return templates.TemplateResponse(request,"species.html",context(request,species=summaries(request,session),settings=request.app.state.settings))
+    return templates.TemplateResponse(request,"species.html",context(request,species=summaries(request,session),settings=request.app.state.settings,score_band=score_band))
 
 @router.get("/system")
 async def system_page(request:Request,session:Session=Depends(db)):

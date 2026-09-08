@@ -28,7 +28,9 @@ async def test_dashboard_pages_and_placeholder_do_not_call_birdweather(settings)
         for path in ("/","/detections","/species","/system","/static/images/placeholder-bird.svg"):
             response=await client.get(path);assert response.status_code==200,path
         body=(await client.get("/")).text
-        assert "Species summary" in body and "Highest BirdNET confidence" in body and "placeholder-bird.svg" in body
+        assert "Species summary" in body and "highest BirdNET confidence" in body and "placeholder-bird.svg" in body
+        assert 'class="species-row score-pending"' in body and "species-grid" not in body and "species-card" not in body
+        assert "Corroboration score (1–10)" in body and "0 stations" in body and "0 total (24h)" in body
         assert (await client.get("/detections?limit=201")).status_code==422
     assert bw.calls==0
 
