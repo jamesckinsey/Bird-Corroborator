@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Bird activity · Bird Corroborator{% endblock %}
+{% block content %}
+<section class="hero"><div><p class="eyebrow">BIRDPI · RECENT ACTIVITY</p><h1>Birds heard nearby</h1><p>Independent BirdWeather evidence alongside local BirdNET-Go detections.</p></div><a class="button" href="/species">Today’s species</a></section>
+{% if detections %}<section class="card-grid" aria-label="Recent detections">
+{% for d in detections %}<article class="bird-card">
+  <img src="{{ d.image_url }}" alt="Representative image of {{ d.species_common }}" loading="lazy" width="640" height="400">
+  <div class="card-body"><div class="card-heading"><div><h2>{{ d.species_common }}</h2><p class="scientific">{{ d.species_scientific }}</p></div><time>{{ d.detected_at.strftime('%-I:%M %p') }}</time></div>
+  <div class="metrics"><div><span>BirdNET confidence</span><strong>{{ (d.birdnet_confidence * 100)|round|int }}%</strong></div><div><span>Corroboration evidence</span><strong>{% if d.corroboration.corroboration_score is not none %}{{ d.corroboration.corroboration_score }}/100{% else %}Pending{% endif %}</strong></div></div>
+  <p class="status status-{{ (d.corroboration.corroboration_level or 'PENDING')|lower }}"><span aria-hidden="true">●</span> {{ d.corroboration.corroboration_level or d.enrichment_state }}</p>
+  <dl><div><dt>Independent stations</dt><dd>{{ d.corroboration.unique_nearby_stations }}</dd></div><div><dt>Nearest</dt><dd>{% if d.corroboration.nearest_match_miles is not none %}{{ '%.1f'|format(d.corroboration.nearest_match_miles) }} mi{% else %}—{% endif %}</dd></div><div><dt>Closest in time</dt><dd>{% if d.corroboration.closest_time_difference_minutes is not none %}{{ d.corroboration.closest_time_difference_minutes|round|int }} min{% else %}—{% endif %}</dd></div></dl>
+  {% if d.image_attribution %}<small class="attribution">Image: {{ d.image_attribution }}</small>{% endif %}</div>
+</article>{% endfor %}</section>{% else %}<div class="empty"><h2>No detections yet</h2><p>The dashboard will populate after the next BirdNET-Go poll.</p></div>{% endif %}
+{% endblock %}

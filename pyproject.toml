@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "LAN service that corroborates BirdNET-Go detections with BirdWeather"
 requires-python = ">=3.11"
 dependencies = [
-  "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "sqlalchemy>=2.0,<3",
+  "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "sqlalchemy>=2.0,<3", "jinja2>=3.1,<4",
   "pydantic-settings>=2.5,<3", "httpx>=0.27,<1", "tenacity>=9,<10"
 ]
 [project.scripts]

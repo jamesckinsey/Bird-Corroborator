@@ -261,6 +261,31 @@ Before BirdWeather work, the service reads the cheap one-minute load average. Ab
 - `/api/v1/nearby/today`
 - `http://PI-IP:8000/docs`
 
+## HTTP dashboard and species images
+
+Open the responsive dashboard from a desktop, phone, or household tablet:
+
+```text
+http://<birdpi-ip>:8000/
+```
+
+Pages are `/` for recent activity, `/detections` for a bounded chronological view, `/species` for today's species cards, and `/system` for Corroborator/birdpi health. Page loads read SQLite only: they never trigger BirdWeather or external image requests. BirdNET confidence and corroboration evidence are deliberately presented as separate metrics.
+
+Representative images are found through the documented Wikimedia Commons MediaWiki API using scientific names. The low-priority serialized worker requests a dashboard-size thumbnail once, saves it under `/opt/bird-corroborator/data/species-images`, and stores provider, source URL, creator, license, attribution, retrieval time, and retry state in SQLite. Browser/API image URLs point back to `/media/species/...`; external URLs are not embedded in dashboard cards. Attribution appears on visual cards when available. A bundled local placeholder keeps every page functional while an image is pending or unavailable.
+
+To safely clear and rebuild the cache, stop only Corroborator and use the maintenance command. Existing files are moved to a timestamped backup rather than deleted:
+
+```bash
+sudo systemctl stop bird-corroborator
+cd /opt/bird-corroborator
+sudo -u birdcorroborator .venv/bin/python -m app.cli images-reset
+sudo systemctl start bird-corroborator
+```
+
+The worker retrieves the images again gradually, one species at a time, subject to load shedding. If images remain missing, check `/system`, `journalctl -u bird-corroborator`, Internet/DNS access, directory ownership, and the configured Commons API URL. Provider failure does not affect BirdNET ingestion, BirdWeather evidence, scoring, APIs, or page rendering.
+
+Initial production polling remains `BIRDNET_POLL_SECONDS=300`. After the staged stability checks, it may be changed to `120` in `.env` followed by `sudo systemctl restart bird-corroborator`; compare BirdNET-Go load, audio drops, overruns, and temperature before retaining the faster interval.
+
 Status contains connection state, timestamps, SQLite health, pending count, RSS, sampled process CPU, one-minute load, and Pi thermal-zone temperature. Unavailable metrics return `null`.
 
 Find the LAN address with `hostname -I`, then test `curl http://PI-IP:8000/api/v1/status` from a trusted LAN device. Do not configure forwarding, UPnP, tunnels, public DNS, or a public proxy.

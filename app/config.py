@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     enrichment_concurrency: int = Field(1, ge=1, le=1)
     load_shedding_enabled: bool = True
     load_shedding_threshold: float = Field(3.0, gt=0)
+    image_provider_api_url: str = "https://commons.wikimedia.org/w/api.php"
+    image_cache_dir: str = "data/species-images"
+    image_retry_hours: int = Field(24, ge=1, le=720)
+    image_thumbnail_width: int = Field(640, ge=160, le=1280)
+    image_max_bytes: int = Field(5_000_000, ge=100_000, le=20_000_000)
     local_timezone: str = "America/New_York"
     database_url: str = "sqlite:///data/birds.db"
     log_level: str = "INFO"
@@ -30,7 +35,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     worker_enabled: bool = True
 
-    @field_validator("birdnet_base_url", "birdweather_graphql_url")
+    @field_validator("birdnet_base_url", "birdweather_graphql_url", "image_provider_api_url")
     @classmethod
     def trim_url(cls, value: str) -> str:
         return value.rstrip("/")

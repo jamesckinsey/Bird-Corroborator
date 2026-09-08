@@ -12,5 +12,6 @@ async def status(request:Request,session:Session=Depends(db)):
     except Exception:ok=False
     state=request.app.state.health
     pending=session.scalar(select(func.count()).select_from(LocalDetection).where(LocalDetection.enrichment_state!=EnrichmentState.COMPLETE)) if ok else 0
+    retries=session.scalar(select(func.count()).select_from(LocalDetection).where(LocalDetection.enrichment_state==EnrichmentState.TEMPORARILY_UNAVAILABLE)) if ok else 0
     metrics=request.app.state.metrics.sample()
-    return StatusOut(status="ok" if ok else "degraded",birdnet_connected=state.birdnet_connected,birdweather_available=state.birdweather_available,last_birdnet_poll=state.last_birdnet_poll,last_birdweather_request=state.last_birdweather_request,database_ok=ok,pending_enrichments=pending or 0,**metrics)
+    return StatusOut(status="ok" if ok else "degraded",birdnet_connected=state.birdnet_connected,birdweather_available=state.birdweather_available,last_birdnet_poll=state.last_birdnet_poll,last_birdweather_request=state.last_birdweather_request,database_ok=ok,pending_enrichments=pending or 0,retry_enrichments=retries or 0,**metrics)
