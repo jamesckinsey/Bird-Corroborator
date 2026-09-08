@@ -39,7 +39,20 @@ def test_additive_migration_preserves_existing_record(settings):
     initialize_database(engine)
     with sessions() as db:assert db.scalar(select(LocalDetection.source_detection_id))=="preserved"
 
-def test_systemd_unit_never_controls_birdnet():
-    unit=Path("deploy/bird-corroborator.service").read_text().lower()
-    assert "birdnet-go.service" not in unit and "execstop" not in unit
-    assert "nice=10" in unit and "cpuweight=20" in unit and "memorymax=256m" in unit
+def test_compose_isolated_from_birdnet_go():
+    compose=Path("docker-compose.yml").read_text()
+    assert "container_name: bird-corroborator" in compose
+    assert "platform: linux/arm64" in compose
+    assert "restart: unless-stopped" in compose
+    assert '"8000:8000"' in compose
+    assert "/home/jkinsey/birdnet-go-app/data:/birdnet-data:ro" in compose
+    assert "/home/jkinsey/bird-corroborator-data:/data" in compose
+    assert "birdnet-go:" not in compose
+    assert "/api/v1/status" in compose
+
+def test_container_build_is_arm64_portable_and_has_healthcheck():
+    dockerfile=Path("Dockerfile").read_text()
+    assert "python:3.11-slim-bookworm" in dockerfile
+    assert "/api/v1/status" in dockerfile
+    assert "uvicorn" in dockerfile
+    assert "systemctl" not in dockerfile and "systemd" not in dockerfile

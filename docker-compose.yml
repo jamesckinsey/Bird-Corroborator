@@ -1,0 +1,38 @@
+services:
+  bird-corroborator:
+    build:
+      context: .
+    platform: linux/arm64
+    image: bird-corroborator:local
+    container_name: bird-corroborator
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      DATABASE_URL: sqlite:////data/birds.db
+      IMAGE_CACHE_DIR: /data/species-images
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /home/jkinsey/birdnet-go-app/data:/birdnet-data:ro
+      - /home/jkinsey/bird-corroborator-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/status', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    mem_limit: 256m
+    cpus: 0.50

@@ -1,317 +1,176 @@
 # Bird Corroborator
 
-Bird Corroborator is a low-priority companion to BirdNET-Go on the same Raspberry Pi. It stores BirdNET-Go detections, enriches them with nearby BirdWeather evidence, calculates a transparent corroboration score, and exposes a LAN-only FastAPI API. It performs no audio work or ML inference and never controls, changes, or writes to BirdNET-Go.
+Bird Corroborator is a lightweight companion to BirdNET-Go. It polls the existing BirdNET-Go HTTP API, stores detections in SQLite, enriches them with nearby BirdWeather observations, and provides a FastAPI API and responsive dashboard. It performs no audio analysis and never controls or writes to BirdNET-Go.
 
-> **EMERGENCY STOP — does not stop or alter BirdNET-Go**
->
-> ```bash
-> sudo systemctl stop bird-corroborator
-> ```
+Production deployment targets Docker on `birdpi` (Debian Linux, Raspberry Pi 4, arm64/aarch64). The Compose project contains **only Bird Corroborator**. BirdNET-Go remains a separately managed container.
 
-## Architecture and verified APIs
+## Architecture and isolation
 
 ```text
-BirdNET-Go local API -> checkpointed poll -> SQLite
-                                                ^
-BirdWeather -> cached/load-shed single worker ---+-> FastAPI -> home LAN
+existing birdnet-go container --published HTTP port--> bird-corroborator
+existing BirdNET data directory --read-only mount-----> /birdnet-data
+BirdWeather / Wikimedia Commons --HTTPS-------------> bird-corroborator
+Corroborator SQLite and images <---------------------- /home/jkinsey/bird-corroborator-data
+dashboard/API <--------------------------------------- birdpi:8000
 ```
 
-Current BirdNET-Go source documents `GET /api/v2/detections/recent?limit=...`, date-ranged `GET /api/v2/detections`, `/api/v2/detections/{id}`, `/api/v2/ping`, and SSE. Responses contain stable numeric IDs, names, fractional confidence, ISO-8601 timestamps, and clip metadata. Normal polls use `recent`; bounded catch-up uses `start_date`. Private mode may require authentication, which V1 does not configure. See the [BirdNET-Go API v2 documentation](https://github.com/tphakala/birdnet-go/blob/main/internal/api/v2/README.md).
-
-BirdWeather documents unauthenticated GraphQL at `https://app.birdweather.com/graphql`. Its `detections` query accepts time, species, and NE/SW bounds and returns IDs, station metadata, coordinates, timestamps, species, and confidence. The client searches for the exact species, queries a bounding square, then applies Haversine radius locally. No numeric rate limit is published, so V1 uses a 15-minute cache, 15-second timeout, three exponential retries, bounded results, and one enrichment at a time. See the [BirdWeather API](https://app.birdweather.com/api/index.html).
-
-Both adapters and paths are isolated/configurable. Validate them against the installed versions.
-
-## Requirements and ARM audit
-
-- Raspberry Pi OS/Debian-family Linux with systemd
-- Python 3.11+ with `venv`
-- Local BirdNET-Go HTTP API; Internet is optional for ingestion
-
-Runtime dependencies are FastAPI, plain Uvicorn, SQLAlchemy, Pydantic Settings, HTTPX, and Tenacity. There is no Docker, Redis, external queue, monitoring agent, or multi-worker server. Pydantic Core and SQLAlchemy's Greenlet dependency provide common ARM/aarch64 wheels; an old/unsupported 32-bit OS may attempt native compilation. Verify wheel availability during installation. Optional native `uvicorn[standard]` speedups are deliberately omitted.
-
-Detect the actual target first:
-
-```bash
-uname -m
-cat /etc/os-release
-tr -d '\0' </proc/device-tree/model; echo
-systemctl --version
-python3 --version
-```
-
-Validate systemd directives with `sudo systemd-analyze verify /etc/systemd/system/bird-corroborator.service`. `Nice` is broadly supported; `CPUWeight` and `MemoryMax` require their cgroup controllers. Inspect effective values with `systemctl show bird-corroborator -p Nice -p CPUWeight -p MemoryMax -p ControlGroup`. If the target rejects a resource directive, retain `Nice=10`, remove only that rejected line, and document the local variation.
+The `/birdnet-data` mount is present for read-only visibility and future compatible media references. Current ingestion uses BirdNET-Go's HTTP API; it does not modify files in that mount. Docker starts and supervises Uvicorn directly—there is no production systemd unit.
 
 ## Configuration
 
-Copy `.env.example` to `.env`. Supply or verify:
+All runtime configuration and secrets come from `.env`, which is ignored by Git and excluded from the image build context. Copy `.env.example` and set at least:
 
 ```env
-BIRDNET_BASE_URL=http://127.0.0.1:ACTUAL_PORT
+BIRDNET_BASE_URL=http://host.docker.internal:PORT
 HOME_LATITUDE=YOUR_DECIMAL_LATITUDE
 HOME_LONGITUDE=YOUR_DECIMAL_LONGITUDE
 LOCAL_TIMEZONE=America/New_York
 ```
 
-Important defaults are `BIRDNET_POLL_SECONDS=300`, `BIRDNET_CATCHUP_HOURS=12`, `BIRDWEATHER_CACHE_MINUTES=15`, `ENRICHMENT_CONCURRENCY=1`, `LOAD_SHEDDING_ENABLED=true`, `LOAD_SHEDDING_THRESHOLD=3.0`, `DATABASE_URL=sqlite:///data/birds.db`, `API_HOST=0.0.0.0`, and `API_PORT=8000`. See [.env.example](.env.example) for every value. `.env` is ignored by Git and installed mode `0640`. Coordinates are not returned or routinely logged and are sent only to BirdWeather.
-
-### Find the BirdNET-Go loopback URL
-
-Do not assume port 8080. Inspect read-only state:
+Find the host port already published by BirdNET-Go without changing it:
 
 ```bash
-sudo ss -ltnp
-systemctl status birdnet-go --no-pager
-systemctl cat birdnet-go
-```
-
-The existing UI URL, process arguments, or referenced config should reveal the port. Verify without changing BirdNET-Go:
-
-```bash
+docker ps --filter name='^birdnet-go$'
+docker port birdnet-go
 curl -fsS http://127.0.0.1:PORT/api/v2/ping
-curl -fsS 'http://127.0.0.1:PORT/api/v2/detections/recent?limit=2&includeWeather=false'
-curl -fsS "http://127.0.0.1:PORT/api/v2/detections?start_date=$(date +%F)&limit=2"
 ```
 
-If private mode blocks access, stop and add supported authentication later; do not scrape HTML or access BirdNET-Go's database.
+Replace `PORT` with the published host port (commonly 8080). `host.docker.internal` is mapped to Docker's host gateway by Compose. Do not use `127.0.0.1` in `BIRDNET_BASE_URL`; inside the Corroborator container it refers to the Corroborator itself.
 
-# SAFE DEPLOYMENT AND ROLLBACK
+Important defaults include a 300-second poll interval, 12-hour startup catch-up, one enrichment worker, load shedding, and a 15-minute BirdWeather cache. Compose deliberately fixes container-owned paths to `/data/birds.db` and `/data/species-images`.
 
-BirdNET-Go is primary. Install without enabling startup and validate gradually.
+## First deployment on birdpi
 
-## Stage A — pre-deployment baseline
+Install Docker Engine and its Compose plugin using Docker's Debian instructions if needed. Then run these exact commands as `jkinsey`:
 
 ```bash
-cd /opt/bird-corroborator
-./scripts/pi-baseline.sh | tee ~/birdnet-baseline-before.txt
+ssh jkinsey@birdpi
+cd /home/jkinsey
+git clone git@github.com:jamesckinsey/Bird-Corroborator.git bird-corroborator
+cd /home/jkinsey/bird-corroborator
+cp .env.example .env
+chmod 600 .env
+docker port birdnet-go
+nano .env
+mkdir -p /home/jkinsey/bird-corroborator-data
+docker compose config
+docker compose build
+docker compose up -d
+docker compose ps
+curl -fsS http://localhost:8000/api/v1/status
 ```
 
-Or run `uptime`, `free -h`, `df -h`, `vcgencmd measure_temp`, `vcgencmd get_throttled`, and `systemctl --failed`. Also record BirdNET-Go dashboard CPU/load, memory, temperature, audio buffer drops, overruns, analysis latency, and service state. Do not proceed if BirdNET-Go is unhealthy.
+Before `docker compose up`, set the published BirdNET-Go port and coordinates in `.env`. The official Python 3.11 Debian base image is multi-architecture and supports `linux/arm64` natively. Do not add BirdNET-Go to this Compose project or run these Compose commands from its installation directory.
 
-## Stage B — install, deliberately not enabled
+Open `http://birdpi:8000/` for the dashboard or `http://birdpi:8000/docs` for API documentation. Main API routes include `/api/v1/status`, `/api/v1/detections/today`, `/api/v1/detections/latest?limit=20`, `/api/v1/species/today`, and `/api/v1/nearby/today`.
 
-Package names vary by release; on current Raspberry Pi OS/Debian they are normally:
+## Validation and routine operations
+
+The healthcheck calls `/api/v1/status` inside the container. A response proves the HTTP service and SQLite status route operate; BirdNET-Go or BirdWeather may still be reported as temporarily degraded in the JSON.
 
 ```bash
-sudo apt update
-sudo apt install python3 python3-venv python3-pip git curl sqlite3
-sudo mkdir -p /opt/bird-corroborator
-sudo chown "$USER":"$USER" /opt/bird-corroborator
-# Copy/clone this repository's contents into /opt/bird-corroborator.
-cd /opt/bird-corroborator
-chmod +x scripts/*.sh
-sudo ./scripts/install-systemd.sh
-sudoedit /opt/bird-corroborator/.env
-sudo systemd-analyze verify /etc/systemd/system/bird-corroborator.service
+# Status and health
+cd /home/jkinsey/bird-corroborator
+docker compose ps
+docker inspect --format '{{.State.Health.Status}}' bird-corroborator
+curl -fsS http://localhost:8000/api/v1/status
+
+# Follow logs
+docker compose logs -f --tail=200 bird-corroborator
+
+# Restart only Corroborator
+docker compose restart bird-corroborator
+
+# Stop/remove only Corroborator; persistent data remains
+docker compose down
+
+# Start it again
+docker compose up -d
 ```
 
-The installer creates unprivileged user `birdcorroborator`, `.venv`, its own data directory, and the unit. It **does not start or enable** it and never touches BirdNET-Go.
+None of these commands targets the independently managed `birdnet-go` container.
 
-Test before first start:
+## Upgrade
+
+Back up the Corroborator database, then pull and rebuild. The brief `down` used for a consistent SQLite copy affects only Corroborator:
 
 ```bash
-cd /opt/bird-corroborator
-sudo .venv/bin/pip install -e '.[test]'
+cd /home/jkinsey/bird-corroborator
+docker compose down
+cp -a /home/jkinsey/bird-corroborator-data/birds.db \
+  "/home/jkinsey/bird-corroborator-data/birds.db.backup-$(date +%F-%H%M%S)"
+git pull
+docker compose up -d --build
+docker compose ps
+curl -fsS http://localhost:8000/api/v1/status
+```
+
+Database initialization is additive. Corroborator-owned data survives image and container replacement in `/home/jkinsey/bird-corroborator-data`.
+
+## Rollback and troubleshooting
+
+Record the current revision before an upgrade with `git rev-parse HEAD`. To roll code back without touching BirdNET-Go or Corroborator data:
+
+```bash
+cd /home/jkinsey/bird-corroborator
+git log --oneline -10
+git checkout PREVIOUS_GOOD_COMMIT
+docker compose up -d --build
+curl -fsS http://localhost:8000/api/v1/status
+```
+
+After diagnosis, return with `git switch master`. Restore a database backup only when a release specifically documents an incompatible migration:
+
+```bash
+cd /home/jkinsey/bird-corroborator
+docker compose down
+cp -a /home/jkinsey/bird-corroborator-data/birds.db.backup-TIMESTAMP \
+  /home/jkinsey/bird-corroborator-data/birds.db
+docker compose up -d
+```
+
+Useful read-only diagnostics:
+
+```bash
+docker compose config
+docker compose ps
+docker compose logs --tail=300 bird-corroborator
+docker inspect bird-corroborator
+docker stats --no-stream bird-corroborator
+docker port birdnet-go
+curl -v http://127.0.0.1:PORT/api/v2/ping
+ls -ld /home/jkinsey/bird-corroborator-data
+df -h /home/jkinsey/bird-corroborator-data
+```
+
+If startup reports permission denied for `/data`, ensure the host directory is owned by the account running Docker:
+
+```bash
+sudo chown -R jkinsey:jkinsey /home/jkinsey/bird-corroborator-data
+docker compose up -d
+```
+
+If BirdNET-Go is unreachable, verify its published host port and `BIRDNET_BASE_URL`; do not restart, recreate, edit, or join BirdNET-Go to this Compose project. If port 8000 is occupied, identify the listener with `sudo ss -ltnp '( sport = :8000 )'` rather than changing BirdNET-Go.
+
+## Development and maintenance
+
+Local development remains standard Python and does not require Docker:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e '.[test]'
 .venv/bin/pytest -q
 ```
 
-## Stage C — first start and five-minute validation
+Run maintenance in the deployed container:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl start bird-corroborator
-sudo systemctl status bird-corroborator --no-pager
-curl -fsS http://localhost:8000/api/v1/status
+docker compose exec bird-corroborator python -m app.cli catchup --hours 72
+docker compose exec bird-corroborator python -m app.cli images-reset
 ```
 
-For five minutes inspect `journalctl -u bird-corroborator -f`, `top`, `free -h`, `vcgencmd measure_temp`, `vcgencmd get_throttled`, and BirdNET-Go health. Stop immediately for new buffer drops/overruns, material latency, sustained load/temperature increase, memory pressure, throttling, or crash loops:
-
-```bash
-sudo systemctl stop bird-corroborator
-```
-
-## Stage D — thirty-minute validation
-
-After 30 minutes:
-
-```bash
-curl -fsS http://localhost:8000/api/v1/detections/today
-curl -fsS http://localhost:8000/api/v1/species/today
-curl -fsS http://localhost:8000/api/v1/nearby/today
-journalctl -u bird-corroborator --since '30 minutes ago' --no-pager
-```
-
-Confirm new unique detections, enrichment/cache behavior, responsive API, stable memory/temperature, and unchanged BirdNET-Go drops, overruns, and latency.
-
-## Stage E — several-hour validation
-
-```bash
-journalctl -u bird-corroborator --since '4 hours ago' --no-pager
-curl -fsS http://localhost:8000/api/v1/status
-./scripts/pi-baseline.sh | tee ~/birdnet-baseline-after.txt
-diff -u ~/birdnet-baseline-before.txt ~/birdnet-baseline-after.txt || true
-```
-
-Require no new BirdNET drops/overruns, sustained resource increase, throttling, crash loop, unbounded backlog, excessive requests, or SQLite errors.
-
-## Stage F — enable at boot only after validation
-
-```bash
-sudo systemctl enable bird-corroborator
-systemctl is-enabled bird-corroborator
-```
-
-## Stage G — controlled reboot
-
-When BirdNET-Go is healthy, run `sudo reboot`. Afterward verify BirdNET-Go first, then:
-
-```bash
-systemctl status birdnet-go --no-pager
-sudo systemctl status bird-corroborator --no-pager
-curl -fsS http://localhost:8000/api/v1/status
-```
-
-Confirm catch-up, no duplicates, resumed enrichment, normal load, and healthy BirdNET audio.
-
-## Emergency stop, disable, and isolation test
-
-```bash
-sudo systemctl stop bird-corroborator
-sudo systemctl disable bird-corroborator
-```
-
-Explicitly test rollback isolation during rollout: stop Corroborator, confirm BirdNET-Go and its audio pipeline remain healthy, then run `sudo systemctl start bird-corroborator` and curl status. No Corroborator operation invokes a BirdNET-Go control.
-
-## Safe backup
-
-SQLite uses WAL. The simplest consistent backup stops only Corroborator briefly:
-
-```bash
-sudo systemctl stop bird-corroborator
-sudo cp -a /opt/bird-corroborator/data/birds.db \
-  "/opt/bird-corroborator/data/birds.db.backup-$(date +%F-%H%M%S)"
-sudo systemctl start bird-corroborator
-```
-
-For a live online backup: `sqlite3 /opt/bird-corroborator/data/birds.db ".backup '/opt/bird-corroborator/data/birds-online-backup.db'"`.
-
-Retain working code before upgrades without copying the live database, environment, or virtualenv:
-
-```bash
-sudo systemctl stop bird-corroborator
-sudo tar --exclude='./data' --exclude='./.env' --exclude='./.venv' \
-  -C /opt/bird-corroborator -czf /opt/bird-corroborator-code-working.tar.gz .
-sudo systemctl start bird-corroborator
-```
-
-## Upgrade and rollback
-
-Before upgrading, confirm BirdNET health, capture a baseline, back up SQLite/code, and do not update BirdNET-Go simultaneously. Then:
-
-```bash
-sudo systemctl stop bird-corroborator
-cd /opt/bird-corroborator
-sudo .venv/bin/pip install --upgrade .
-sudo .venv/bin/pip install -e '.[test]'
-.venv/bin/pytest -q
-sudo systemctl start bird-corroborator
-curl -fsS http://localhost:8000/api/v1/status
-```
-
-Repeat the resource/audio comparison. Roll back failed code without touching BirdNET-Go:
-
-```bash
-sudo systemctl stop bird-corroborator
-sudo mv /opt/bird-corroborator /opt/bird-corroborator.failed
-sudo mkdir /opt/bird-corroborator
-sudo tar -xzf /opt/bird-corroborator-code-working.tar.gz -C /opt/bird-corroborator
-sudo mv /opt/bird-corroborator.failed/data /opt/bird-corroborator/
-sudo mv /opt/bird-corroborator.failed/.env /opt/bird-corroborator/
-sudo mv /opt/bird-corroborator.failed/.venv /opt/bird-corroborator/
-sudo /opt/bird-corroborator/.venv/bin/pip install --upgrade /opt/bird-corroborator
-sudo systemctl daemon-reload
-sudo systemctl start bird-corroborator
-curl -fsS http://localhost:8000/api/v1/status
-```
-
-Current initialization is additive: missing tables/indexes and a schema-version row are created; records are never dropped. Restore a database backup only if future release notes identify an incompatible migration. An irreversible migration must require a backup and explain rollback.
+`images-reset` moves cached images to a timestamped backup within the Corroborator data directory and queues fresh retrieval; it does not delete or alter BirdNET-Go media.
 
 ## Runtime behavior
 
-Normal polling requests at most 100 recent records every 300 seconds. A durable UTC timestamp checkpoint with five-second overlap avoids gaps; unique source IDs prevent duplicates. Startup catch-up is limited to 12 hours and 20 pages. For a deliberate larger import at low load:
-
-```bash
-sudo systemctl stop bird-corroborator
-cd /opt/bird-corroborator
-sudo -u birdcorroborator .venv/bin/python -m app.cli catchup --hours 72
-sudo systemctl start bird-corroborator
-```
-
-Ingestion stores detections as `PENDING` without waiting for Internet work. A separate worker selects one due SQLite record. Cache entries last 15 minutes. HTTP attempts are limited; persistent failure schedules exponentially delayed SQLite retries, capped at 32 times the 15-minute base and 12 attempts.
-
-Before BirdWeather work, the service reads the cheap one-minute load average. Above 3.0, enrichment and nearby refresh defer while ingestion and REST continue. They resume oldest-first when load falls.
-
-## API and diagnostics
-
-- `/api/v1/status`
-- `/api/v1/detections/today`
-- `/api/v1/detections/latest?limit=20`
-- `/api/v1/detections/{id}`
-- `/api/v1/species/today`
-- `/api/v1/nearby/today`
-- `http://PI-IP:8000/docs`
-
-## HTTP dashboard and species images
-
-Open the responsive dashboard from a desktop, phone, or household tablet:
-
-```text
-http://<birdpi-ip>:8000/
-```
-
-Pages are `/` for recent activity, `/detections` for a bounded chronological view, `/species` for today's species cards, and `/system` for Corroborator/birdpi health. Page loads read SQLite only: they never trigger BirdWeather or external image requests. BirdNET confidence and corroboration evidence are deliberately presented as separate metrics.
-
-Representative images are found through the documented Wikimedia Commons MediaWiki API using scientific names. The low-priority serialized worker requests a dashboard-size thumbnail once, saves it under `/opt/bird-corroborator/data/species-images`, and stores provider, source URL, creator, license, attribution, retrieval time, and retry state in SQLite. Browser/API image URLs point back to `/media/species/...`; external URLs are not embedded in dashboard cards. Attribution appears on visual cards when available. A bundled local placeholder keeps every page functional while an image is pending or unavailable.
-
-To safely clear and rebuild the cache, stop only Corroborator and use the maintenance command. Existing files are moved to a timestamped backup rather than deleted:
-
-```bash
-sudo systemctl stop bird-corroborator
-cd /opt/bird-corroborator
-sudo -u birdcorroborator .venv/bin/python -m app.cli images-reset
-sudo systemctl start bird-corroborator
-```
-
-The worker retrieves the images again gradually, one species at a time, subject to load shedding. If images remain missing, check `/system`, `journalctl -u bird-corroborator`, Internet/DNS access, directory ownership, and the configured Commons API URL. Provider failure does not affect BirdNET ingestion, BirdWeather evidence, scoring, APIs, or page rendering.
-
-Initial production polling remains `BIRDNET_POLL_SECONDS=300`. After the staged stability checks, it may be changed to `120` in `.env` followed by `sudo systemctl restart bird-corroborator`; compare BirdNET-Go load, audio drops, overruns, and temperature before retaining the faster interval.
-
-Status contains connection state, timestamps, SQLite health, pending count, RSS, sampled process CPU, one-minute load, and Pi thermal-zone temperature. Unavailable metrics return `null`.
-
-Find the LAN address with `hostname -I`, then test `curl http://PI-IP:8000/api/v1/status` from a trusted LAN device. Do not configure forwarding, UPnP, tunnels, public DNS, or a public proxy.
-
-## Scoring
-
-BirdNET confidence stays separate. V1 awards 0–20 confidence points; distance 25 (≤2 mi), 18 (≤5 mi), or 10; time 25 (≤15 min), 18 (≤60 min), or 8 (≤24 h); independent stations after the first add 8 (cap 24); repeats add 2 (cap 6); evidence before and after adds 5. At 0–29 the result is `UNVERIFIED`, 30–54 `POSSIBLE`, 55–79 `LIKELY`, and 80–100 `STRONGLY_CORROBORATED`. It is evidence strength, not probability.
-
-## Operations and resource monitoring
-
-```bash
-sudo systemctl status bird-corroborator
-journalctl -u bird-corroborator -f
-sudo systemctl restart bird-corroborator
-sudo systemctl stop bird-corroborator
-sudo systemctl enable bird-corroborator
-sudo systemctl disable bird-corroborator
-top
-free -h
-uptime
-vcgencmd measure_temp
-vcgencmd get_throttled
-systemctl show bird-corroborator -p MemoryCurrent -p CPUUsageNSec -p NRestarts
-ps -o pid,ni,%cpu,%mem,rss,etime,cmd -C uvicorn
-```
-
-The estimate is near-zero idle CPU, brief work every five minutes, and preferably under 100 MB RSS; these are design expectations, not Pi measurements. `MemoryMax=256M` is a ceiling. Watch sustained CPU, memory pressure, temperature/throttling, BirdNET drops/overruns/latency, growing `pending_enrichments`, and restarts.
-
-Troubleshooting: verify the loopback URL for connection failures; private mode for 401/403; Internet/DNS for unavailable enrichment; load threshold for backlog; coordinates/radius for empty nearby results; and data ownership plus `sqlite3 data/birds.db 'PRAGMA integrity_check;'` for SQLite errors. For any resource concern, use the emergency stop.
+Normal polling requests at most 100 recent records every 300 seconds. A durable UTC checkpoint with a five-second overlap avoids gaps, and unique source IDs prevent duplicates. Ingestion commits detections before external enrichment. BirdWeather and Wikimedia requests are serialized, retried with backoff, cached, and deferred during high system load. Dashboard page loads query local SQLite only and never trigger external requests.
