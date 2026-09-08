@@ -9,7 +9,7 @@ router=APIRouter(prefix="/nearby")
 @router.get("/today",response_model=list[NearbySummary])
 async def today(request:Request,session:Session=Depends(db)):
     settings=request.app.state.settings;start,end=bounds(settings.local_timezone)
-    local=set(session.scalars(select(LocalDetection.species_scientific).where(LocalDetection.detected_at>=start,LocalDetection.detected_at<=end,LocalDetection.confidence>=settings.birdnet_min_confidence)))
+    local=set(session.scalars(select(LocalDetection.species_scientific).where(LocalDetection.detected_at>=start,LocalDetection.detected_at<=end)))
     stmt=select(NearbyObservation).where(NearbyObservation.detected_at>=start,NearbyObservation.detected_at<=end)
     if settings.excluded_station_ids:stmt=stmt.where(NearbyObservation.station_id.not_in(settings.excluded_station_ids))
     rows=list(session.scalars(stmt))

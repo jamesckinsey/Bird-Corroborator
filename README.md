@@ -22,7 +22,6 @@ All runtime configuration and secrets come from `.env`, which is ignored by Git 
 
 ```env
 BIRDNET_BASE_URL=http://host.docker.internal:8080
-BIRDNET_MIN_CONFIDENCE=0.70
 HOME_LATITUDE=42.362
 HOME_LONGITUDE=-71.449
 LOCAL_TIMEZONE=America/New_York
@@ -39,11 +38,11 @@ curl -fsS http://127.0.0.1:PORT/api/v2/ping
 
 The deployed BirdNET-Go port is 8080. `host.docker.internal` is mapped to Docker's host gateway by Compose. Do not use `127.0.0.1` in `BIRDNET_BASE_URL`; inside the Corroborator container it refers to the Corroborator itself.
 
-Important defaults include a 70% local confidence threshold, 300-second poll interval, 12-hour startup catch-up, one enrichment worker, load shedding, 10-mile radius, 24-hour lookback, and a 15-minute BirdWeather cache. Compose deliberately fixes container-owned paths to `/data/birds.db` and `/data/species-images`.
+Important defaults include a 300-second poll interval, 12-hour startup catch-up, one enrichment worker, load shedding, 10-mile radius, 24-hour lookback, and a 15-minute BirdWeather cache. Compose deliberately fixes container-owned paths to `/data/birds.db` and `/data/species-images`.
 
 ### Evidence definitions and station exclusion
 
-- A **local detection** is a BirdNET-Go detection made by birdpi with confidence at or above `BIRDNET_MIN_CONFIDENCE` (70% by default). Lower-confidence detections are rejected before database insertion and cannot trigger enrichment or images. Historical lower-confidence rows are hidden from normal APIs and pages.
+- A **local detection** is any detection reported by the BirdNET-Go installation on birdpi. Corroborator applies no minimum-confidence admission threshold: it retains the original BirdNET confidence, displays it, exposes it through the API, and uses it as one input to the corroboration score.
 - An **independent station** is a unique BirdWeather `station.id`, excluding IDs configured in `BIRDWEATHER_EXCLUDED_STATION_IDS`. It is not inferred from geographic distance.
 - **Total nearby BirdWeather detections** counts distinct returned BirdWeather observations. Repeats from one station increase this total but that station counts only once.
 
@@ -198,9 +197,6 @@ Run maintenance in the deployed container:
 ```bash
 docker compose exec bird-corroborator python -m app.cli catchup --hours 72
 docker compose exec bird-corroborator python -m app.cli images-reset
-# Preview, then optionally purge historical rows below the configured threshold
-docker compose exec bird-corroborator python -m app.cli purge-low-confidence
-docker compose exec bird-corroborator python -m app.cli purge-low-confidence --yes
 ```
 
 `images-reset` moves cached images to a timestamped backup within the Corroborator data directory and queues fresh retrieval; it does not delete or alter BirdNET-Go media.

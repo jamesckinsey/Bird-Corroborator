@@ -13,7 +13,7 @@ RANK={None:0,"UNVERIFIED":1,"POSSIBLE":2,"LIKELY":3,"STRONGLY_CORROBORATED":4}
 async def today(request:Request,session:Session=Depends(db)):
     return summaries(request,session)
 def summaries(request:Request,session:Session):
-    settings=request.app.state.settings;start,end=bounds(settings.local_timezone); rows=list(session.scalars(select(LocalDetection).where(LocalDetection.detected_at>=start,LocalDetection.detected_at<=end,LocalDetection.confidence>=settings.birdnet_min_confidence).options(selectinload(LocalDetection.corroboration),selectinload(LocalDetection.matches)).order_by(LocalDetection.detected_at.desc())))
+    settings=request.app.state.settings;start,end=bounds(settings.local_timezone); rows=list(session.scalars(select(LocalDetection).where(LocalDetection.detected_at>=start,LocalDetection.detected_at<=end).options(selectinload(LocalDetection.corroboration),selectinload(LocalDetection.matches)).order_by(LocalDetection.detected_at.desc())))
     groups={}
     for d in rows:
         key=d.species_scientific; g=groups.setdefault(key,{"species_common":d.species_common,"species_scientific":key,"local_detection_count":0,"highest_birdnet_confidence":0,"latest_detection":d.detected_at,"best_corroboration_level":None,"best_corroboration_score":None,"stations":set(),"observations":set()})

@@ -21,16 +21,15 @@ def serialize(d,detail=False,image=None,excluded_station_ids=frozenset()):
 def query_rows(session,stmt):return list(session.scalars(stmt.options(selectinload(LocalDetection.corroboration),selectinload(LocalDetection.matches))))
 @router.get("/latest",response_model=list[DetectionOut])
 async def latest(request:Request,limit:int=Query(20,ge=1,le=200),session:Session=Depends(db)):
-    settings=request.app.state.settings;rows=query_rows(session,select(LocalDetection).where(LocalDetection.confidence>=settings.birdnet_min_confidence).order_by(LocalDetection.detected_at.desc()).limit(limit));images=image_map(session,(x.species_scientific for x in rows));return [serialize(x,image=images.get(x.species_scientific),excluded_station_ids=settings.excluded_station_ids) for x in rows]
+    settings=request.app.state.settings;rows=query_rows(session,select(LocalDetection).order_by(LocalDetection.detected_at.desc()).limit(limit));images=image_map(session,(x.species_scientific for x in rows));return [serialize(x,image=images.get(x.species_scientific),excluded_station_ids=settings.excluded_station_ids) for x in rows]
 @router.get("/today",response_model=list[DetectionOut])
-async def today(request:Request,min_confidence:float|None=Query(None,ge=0,le=1),species:str|None=None,corroboration_level:str|None=None,session:Session=Depends(db)):
-    settings=request.app.state.settings;start,end=bounds(settings.local_timezone); stmt=select(LocalDetection).where(LocalDetection.detected_at>=start,LocalDetection.detected_at<=end,LocalDetection.confidence>=settings.birdnet_min_confidence)
-    if min_confidence is not None:stmt=stmt.where(LocalDetection.confidence>=max(min_confidence,settings.birdnet_min_confidence))
+async def today(request:Request,species:str|None=None,corroboration_level:str|None=None,session:Session=Depends(db)):
+    settings=request.app.state.settings;start,end=bounds(settings.local_timezone); stmt=select(LocalDetection).where(LocalDetection.detected_at>=start,LocalDetection.detected_at<=end)
     if species:stmt=stmt.where((LocalDetection.species_common.ilike(f"%{species}%"))|(LocalDetection.species_scientific.ilike(f"%{species}%")))
     if corroboration_level:stmt=stmt.join(CorroborationResult).where(CorroborationResult.classification==corroboration_level)
     rows=query_rows(session,stmt.order_by(LocalDetection.detected_at.desc()).limit(1000));images=image_map(session,(x.species_scientific for x in rows));return [serialize(x,image=images.get(x.species_scientific),excluded_station_ids=settings.excluded_station_ids) for x in rows]
 @router.get("/{detection_id}",response_model=DetectionDetail)
 async def detail(detection_id:int,request:Request,session:Session=Depends(db)):
-    rows=query_rows(session,select(LocalDetection).where(LocalDetection.id==detection_id,LocalDetection.confidence>=request.app.state.settings.birdnet_min_confidence));
+    rows=query_rows(session,select(LocalDetection).where(LocalDetection.id==detection_id));
     if not rows:raise HTTPException(404,"Detection not found")
     settings=request.app.state.settings;images=image_map(session,[rows[0].species_scientific]);return serialize(rows[0],True,images.get(rows[0].species_scientific),settings.excluded_station_ids)

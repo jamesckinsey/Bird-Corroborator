@@ -20,7 +20,7 @@ async def dashboard(request:Request,session:Session=Depends(db)):
 
 @router.get("/detections")
 async def detections_page(request:Request,limit:int=Query(50,ge=1,le=200),session:Session=Depends(db)):
-    rows=query_rows(session,select(LocalDetection).where(LocalDetection.confidence>=request.app.state.settings.birdnet_min_confidence).order_by(LocalDetection.detected_at.desc()).limit(limit));images=image_map(session,(x.species_scientific for x in rows))
+    rows=query_rows(session,select(LocalDetection).order_by(LocalDetection.detected_at.desc()).limit(limit));images=image_map(session,(x.species_scientific for x in rows))
     return templates.TemplateResponse(request,"detections.html",context(request,detections=[serialize(x,image=images.get(x.species_scientific),excluded_station_ids=request.app.state.settings.excluded_station_ids) for x in rows],limit=limit))
 
 @router.get("/species")

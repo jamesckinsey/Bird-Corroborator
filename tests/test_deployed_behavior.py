@@ -3,7 +3,7 @@ import httpx,pytest
 from sqlalchemy import select
 from app.birdweather.models import BirdWeatherDetection
 from app.corroboration.scorer import score_detection
-from app.db.models import LocalDetection,SpeciesImage
+from app.db.models import LocalDetection
 from app.main import create_app
 from tests.test_service_api import FakeBN,FakeBW,detection
 
@@ -12,26 +12,27 @@ def nearby(source,station,distance,minutes):
     return BirdWeatherDetection(source_detection_id=source,station_id=station,station_name=station,species_common="Northern Cardinal",species_scientific="Cardinalis cardinalis",detected_at=now+timedelta(minutes=minutes),latitude=42.362,longitude=-71.449,distance_miles=distance,source_confidence=.9)
 
 @pytest.mark.asyncio
-async def test_ingestion_threshold_rejects_69_accepts_70_and_95(settings):
-    rows=[detection("69"),detection("70"),detection("95")];rows[0].confidence=.69;rows[1].confidence=.70;rows[2].confidence=.95
-    app=create_app(settings,FakeBN(rows),FakeBW());assert await app.state.ingestion.poll(True)==2
-    with app.state.sessions() as db:assert list(db.scalars(select(LocalDetection.source_detection_id).order_by(LocalDetection.source_detection_id)))==["70","95"]
-    app.state.image_service.discover()
-    with app.state.sessions() as db:assert db.scalar(select(SpeciesImage)) is not None
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as client:
-        summary=(await client.get("/api/v1/species/today")).json();assert len(summary)==1 and summary[0]["local_detection_count"]==2
-        assert (await client.get("/")).text.count('class="species-card"')==1
-
-@pytest.mark.asyncio
-async def test_historical_low_confidence_hidden_from_pages_and_apis(settings):
-    app=create_app(settings,FakeBN([]),FakeBW())
+async def test_low_medium_and_high_confidence_all_ingest_enrich_and_appear(settings):
+    rows=[]
+    for id_,confidence,name,scientific in (("low",.35,"Low Bird","Lowus birdus"),("medium",.65,"Medium Bird","Mediumus birdus"),("high",.95,"High Bird","Highus birdus")):
+        row=detection(id_);row.confidence=confidence;row.species_common=name;row.species_scientific=scientific;rows.append(row)
+    class CountingBW(FakeBW):
+        def __init__(self):super().__init__([nearby("nearby","station",2,5)]);self.calls=0
+        async def lookup(self,*args):self.calls+=1;return self.rows
+    birdweather=CountingBW();app=create_app(settings,FakeBN(rows),birdweather);assert await app.state.ingestion.poll(True)==3
+    for _ in rows:assert await app.state.enrichment.retry_due()==1
     with app.state.sessions() as db:
-        low=LocalDetection(source_detection_id="old-low",species_common="Low Bird",species_scientific="Lowus birdus",detected_at=datetime.now(timezone.utc),confidence=.69,raw_metadata={});db.add(low);db.commit();low_id=low.id
+        stored=list(db.scalars(select(LocalDetection).order_by(LocalDetection.confidence)))
+        assert [row.confidence for row in stored]==[.35,.65,.95]
+        assert all(row.corroboration is not None for row in stored)
+        assert stored[0].corroboration.score<stored[-1].corroboration.score
+    assert birdweather.calls==3
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as client:
-        assert (await client.get("/api/v1/detections/latest")).json()==[]
-        assert (await client.get("/api/v1/species/today")).json()==[]
-        assert (await client.get(f"/api/v1/detections/{low_id}")).status_code==404
-        assert "Low Bird" not in (await client.get("/")).text
+        latest=(await client.get("/api/v1/detections/latest")).json();assert sorted(row["birdnet_confidence"] for row in latest)==[.35,.65,.95]
+        summary=(await client.get("/api/v1/species/today")).json();assert len(summary)==3
+        detections=(await client.get("/detections")).text;landing=(await client.get("/")).text
+        assert all(value in detections for value in ("35%","65%","95%"))
+        assert all(name in landing for name in ("Low Bird","Medium Bird","High Bird"))
 
 @pytest.mark.asyncio
 async def test_excluded_station_contributes_no_evidence_and_duplicates_count_correctly(settings):

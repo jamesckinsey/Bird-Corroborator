@@ -38,7 +38,7 @@ class EnrichmentService:
             return 0
         now=datetime.now(timezone.utc)
         with self.sessions() as db:
-            ids=list(db.scalars(select(LocalDetection.id).where(LocalDetection.confidence>=self.s.birdnet_min_confidence,LocalDetection.enrichment_state!=EnrichmentState.COMPLETE,LocalDetection.enrichment_attempts<self.s.enrichment_max_attempts,LocalDetection.next_enrichment_at<=now).order_by(LocalDetection.detected_at).limit(limit)))
+            ids=list(db.scalars(select(LocalDetection.id).where(LocalDetection.enrichment_state!=EnrichmentState.COMPLETE,LocalDetection.enrichment_attempts<self.s.enrichment_max_attempts,LocalDetection.next_enrichment_at<=now).order_by(LocalDetection.detected_at).limit(limit)))
         for id_ in ids:
             try:
                 await self.enrich(id_)

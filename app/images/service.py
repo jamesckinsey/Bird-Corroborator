@@ -18,7 +18,7 @@ class SpeciesImageService:
     def __init__(self,sessions,provider,settings):self.sessions=sessions;self.provider=provider;self.s=settings;self.last_error=None
     def discover(self):
         with self.sessions() as db:
-            species=db.execute(select(LocalDetection.species_scientific,func.max(LocalDetection.species_common)).where(LocalDetection.confidence>=self.s.birdnet_min_confidence).group_by(LocalDetection.species_scientific)).all()
+            species=db.execute(select(LocalDetection.species_scientific,func.max(LocalDetection.species_common)).group_by(LocalDetection.species_scientific)).all()
             existing=set(db.scalars(select(SpeciesImage.species_scientific)))
             for scientific,common in species:
                 if scientific not in existing:db.add(SpeciesImage(species_key=species_key(scientific),species_scientific=scientific,species_common=common,retrieval_status="PENDING",retry_after=datetime.now(timezone.utc)))

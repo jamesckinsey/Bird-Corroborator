@@ -11,7 +11,6 @@ class Settings(BaseSettings):
     birdnet_poll_seconds: int = Field(300, ge=10)
     birdnet_catchup_hours: int = Field(12, ge=1)
     birdnet_page_size: int = Field(100, ge=1, le=500)
-    birdnet_min_confidence: float = Field(0.70, ge=0, le=1)
     home_latitude: float | None = Field(None, ge=-90, le=90)
     home_longitude: float | None = Field(None, ge=-180, le=180)
     birdweather_graphql_url: str = "https://app.birdweather.com/graphql"
