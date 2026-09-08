@@ -17,16 +17,19 @@ class IngestionService:
             since=now-timedelta(seconds=self.s.birdnet_poll_seconds*2)
         else:
             saved=datetime.fromisoformat(checkpoint.value.replace("Z","+00:00"));since=saved-timedelta(seconds=5)
-        rows=await self.bn.recent(since,catchup=catchup); new=[]
+        received=await self.bn.recent(since,catchup=catchup)
+        rows=[item for item in received if item.confidence>=self.s.birdnet_min_confidence]; new=[]
         with self.sessions() as db:
             for item in rows:
                 row,created=insert_detection(db,item)
                 if created:new.append(row.id)
-            newest=max((x.detected_at for x in rows),default=now)
+            # Advance across every returned row, including rejected low-confidence
+            # detections, so they are not reconsidered on every overlapping poll.
+            newest=max((x.detected_at for x in received),default=now)
             state=db.get(AppState,"birdnet_checkpoint_at") or AppState(key="birdnet_checkpoint_at",value=newest.isoformat())
             state.value=max(newest,since).isoformat();db.merge(state);db.commit()
         self.status.birdnet_connected=True; self.status.last_birdnet_poll=datetime.now(timezone.utc)
-        log.info("BirdNET poll complete: %s detections, %s new",len(rows),len(new))
+        log.info("BirdNET poll complete: %s returned, %s met %.0f%% threshold, %s new",len(received),len(rows),self.s.birdnet_min_confidence*100,len(new))
         return len(new)
     async def run(self):
         log.info("ingestion worker started")

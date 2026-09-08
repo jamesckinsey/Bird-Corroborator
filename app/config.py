@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     birdnet_poll_seconds: int = Field(300, ge=10)
     birdnet_catchup_hours: int = Field(12, ge=1)
     birdnet_page_size: int = Field(100, ge=1, le=500)
+    birdnet_min_confidence: float = Field(0.70, ge=0, le=1)
     home_latitude: float | None = Field(None, ge=-90, le=90)
     home_longitude: float | None = Field(None, ge=-180, le=180)
     birdweather_graphql_url: str = "https://app.birdweather.com/graphql"
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     birdweather_lookback_hours: int = Field(24, ge=1, le=168)
     birdweather_cache_minutes: int = Field(15, ge=1, le=1440)
     birdweather_timeout_seconds: float = Field(15, gt=0)
+    birdweather_excluded_station_ids: str = ""
     enrichment_retry_seconds: int = Field(900, ge=60)
     enrichment_max_attempts: int = Field(12, ge=1)
     enrichment_concurrency: int = Field(1, ge=1, le=1)
@@ -47,6 +49,10 @@ class Settings(BaseSettings):
     @property
     def birdweather_cache_seconds(self) -> int:
         return self.birdweather_cache_minutes * 60
+
+    @property
+    def excluded_station_ids(self) -> frozenset[str]:
+        return frozenset(value.strip() for value in self.birdweather_excluded_station_ids.split(",") if value.strip())
 
 @lru_cache
 def get_settings() -> Settings:

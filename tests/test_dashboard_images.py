@@ -28,7 +28,7 @@ async def test_dashboard_pages_and_placeholder_do_not_call_birdweather(settings)
         for path in ("/","/detections","/species","/system","/static/images/placeholder-bird.svg"):
             response=await client.get(path);assert response.status_code==200,path
         body=(await client.get("/")).text
-        assert "BirdNET confidence" in body and "Corroboration evidence" in body and "placeholder-bird.svg" in body
+        assert "Species summary" in body and "Highest BirdNET confidence" in body and "placeholder-bird.svg" in body
         assert (await client.get("/detections?limit=201")).status_code==422
     assert bw.calls==0
 
@@ -63,9 +63,9 @@ def test_no_travel_speed_or_seasonal_scoring_logic():
 
 @pytest.mark.asyncio
 async def test_wikimedia_metadata_and_thumbnail_download(settings):
-    calls=[]
+    calls=[];headers=[]
     async def handler(request):
-        calls.append(str(request.url))
+        calls.append(str(request.url));headers.append(request.headers)
         if "w/api.php" in str(request.url):
             payload={"query":{"pages":[{"imageinfo":[{
                 "thumburl":"https://upload.test/thumb.jpg",
@@ -77,3 +77,14 @@ async def test_wikimedia_metadata_and_thumbnail_download(settings):
         return httpx.Response(200,content=b"small-jpeg",headers={"content-type":"image/jpeg","content-length":"10"})
     provider=WikimediaCommonsProvider(settings,httpx.MockTransport(handler));candidate=await provider.find("Turdus migratorius");data,media=await provider.download(candidate["download_url"]);await provider.close()
     assert candidate["creator"]=="Ada Birder" and candidate["license"]=="CC BY 4.0" and data==b"small-jpeg" and media=="image/jpeg" and len(calls)==2
+    assert all(h["user-agent"].startswith("Bird-Corroborator/1.0") for h in headers)
+
+@pytest.mark.asyncio
+async def test_wikimedia_403_is_graceful_and_backed_off(settings,tmp_path):
+    async def handler(request):return httpx.Response(403,request=request)
+    settings=settings.model_copy(update={"image_cache_dir":str(tmp_path/"images")});provider=WikimediaCommonsProvider(settings,httpx.MockTransport(handler));app=create_app(settings,FakeBN([detection()]),FakeBW(),provider);await app.state.ingestion.poll(True)
+    assert not await app.state.image_service.process_one()
+    with app.state.sessions() as db:
+        row=db.scalar(select(SpeciesImage));assert row.retrieval_status=="RETRY" and row.retry_after is not None
+    assert not await app.state.image_service.process_one()
+    await provider.close()

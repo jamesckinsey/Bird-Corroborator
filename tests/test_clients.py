@@ -26,3 +26,15 @@ async def test_birdweather_outage(settings):
     c=BirdWeatherClient(settings,httpx.MockTransport(handler))
     with pytest.raises(httpx.ConnectError):await c.lookup("X","Y")
     await c.close()
+
+@pytest.mark.asyncio
+async def test_birdweather_excludes_stable_station_id_and_logs_diagnostics(settings,caplog):
+    settings=settings.model_copy(update={"birdweather_excluded_station_ids":"self-1,self-2"});calls=0
+    async def handler(req):
+        nonlocal calls;calls+=1
+        if calls==1:return httpx.Response(200,json={"data":{"searchSpecies":{"nodes":[{"id":"1","commonName":"Robin","scientificName":"Turdus migratorius"}]}}})
+        node=lambda id_,station:{"id":id_,"timestamp":"2026-09-03T18:00:00Z","confidence":.8,"coords":{"lat":40.01,"lon":-75},"species":{"commonName":"Robin","scientificName":"Turdus migratorius"},"station":{"id":station,"name":"Yard"}}
+        return httpx.Response(200,json={"data":{"detections":{"nodes":[node("9","self-1"),node("10","other")]}}})
+    caplog.set_level("INFO");client=BirdWeatherClient(settings,httpx.MockTransport(handler));rows=await client.lookup("Turdus migratorius","Robin");await client.close()
+    assert [row.station_id for row in rows]==["other"]
+    assert "station_id=self-1" in caplog.text and "excluded=True" in caplog.text

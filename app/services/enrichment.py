@@ -14,7 +14,7 @@ class EnrichmentService:
             if not d:return
             d.enrichment_attempts+=1; db.commit(); scientific=d.species_scientific; common=d.species_common; detected_at=d.detected_at
         try:
-            matches=await self.bw.lookup(scientific,common)
+            matches=[m for m in await self.bw.lookup(scientific,common) if m.station_id not in self.s.excluded_station_ids]
             with self.sessions() as db:
                 d=db.get(LocalDetection,detection_id); db.execute(delete(BirdWeatherMatch).where(BirdWeatherMatch.local_detection_id==d.id))
                 for m in matches:
@@ -38,7 +38,7 @@ class EnrichmentService:
             return 0
         now=datetime.now(timezone.utc)
         with self.sessions() as db:
-            ids=list(db.scalars(select(LocalDetection.id).where(LocalDetection.enrichment_state!=EnrichmentState.COMPLETE,LocalDetection.enrichment_attempts<self.s.enrichment_max_attempts,LocalDetection.next_enrichment_at<=now).order_by(LocalDetection.detected_at).limit(limit)))
+            ids=list(db.scalars(select(LocalDetection.id).where(LocalDetection.confidence>=self.s.birdnet_min_confidence,LocalDetection.enrichment_state!=EnrichmentState.COMPLETE,LocalDetection.enrichment_attempts<self.s.enrichment_max_attempts,LocalDetection.next_enrichment_at<=now).order_by(LocalDetection.detected_at).limit(limit)))
         for id_ in ids:
             try:
                 await self.enrich(id_)
@@ -48,7 +48,7 @@ class EnrichmentService:
         return len(ids)
     async def refresh_nearby(self):
         if load_is_high(self.s):return 0
-        observations=await self.bw.lookup_all()
+        observations=[m for m in await self.bw.lookup_all() if m.station_id not in self.s.excluded_station_ids]
         with self.sessions() as db:
             for m in observations:
                 db.merge(NearbyObservation(source_detection_id=m.source_detection_id,station_id=m.station_id,station_name=m.station_name,species_common=m.species_common,species_scientific=m.species_scientific,detected_at=m.detected_at,distance_miles=m.distance_miles,source_confidence=m.source_confidence))

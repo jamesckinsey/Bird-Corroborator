@@ -21,10 +21,12 @@ The `/birdnet-data` mount is present for read-only visibility and future compati
 All runtime configuration and secrets come from `.env`, which is ignored by Git and excluded from the image build context. Copy `.env.example` and set at least:
 
 ```env
-BIRDNET_BASE_URL=http://host.docker.internal:PORT
-HOME_LATITUDE=YOUR_DECIMAL_LATITUDE
-HOME_LONGITUDE=YOUR_DECIMAL_LONGITUDE
+BIRDNET_BASE_URL=http://host.docker.internal:8080
+BIRDNET_MIN_CONFIDENCE=0.70
+HOME_LATITUDE=42.362
+HOME_LONGITUDE=-71.449
 LOCAL_TIMEZONE=America/New_York
+BIRDWEATHER_EXCLUDED_STATION_IDS=
 ```
 
 Find the host port already published by BirdNET-Go without changing it:
@@ -35,9 +37,30 @@ docker port birdnet-go
 curl -fsS http://127.0.0.1:PORT/api/v2/ping
 ```
 
-Replace `PORT` with the published host port (commonly 8080). `host.docker.internal` is mapped to Docker's host gateway by Compose. Do not use `127.0.0.1` in `BIRDNET_BASE_URL`; inside the Corroborator container it refers to the Corroborator itself.
+The deployed BirdNET-Go port is 8080. `host.docker.internal` is mapped to Docker's host gateway by Compose. Do not use `127.0.0.1` in `BIRDNET_BASE_URL`; inside the Corroborator container it refers to the Corroborator itself.
 
-Important defaults include a 300-second poll interval, 12-hour startup catch-up, one enrichment worker, load shedding, and a 15-minute BirdWeather cache. Compose deliberately fixes container-owned paths to `/data/birds.db` and `/data/species-images`.
+Important defaults include a 70% local confidence threshold, 300-second poll interval, 12-hour startup catch-up, one enrichment worker, load shedding, 10-mile radius, 24-hour lookback, and a 15-minute BirdWeather cache. Compose deliberately fixes container-owned paths to `/data/birds.db` and `/data/species-images`.
+
+### Evidence definitions and station exclusion
+
+- A **local detection** is a BirdNET-Go detection made by birdpi with confidence at or above `BIRDNET_MIN_CONFIDENCE` (70% by default). Lower-confidence detections are rejected before database insertion and cannot trigger enrichment or images. Historical lower-confidence rows are hidden from normal APIs and pages.
+- An **independent station** is a unique BirdWeather `station.id`, excluding IDs configured in `BIRDWEATHER_EXCLUDED_STATION_IDS`. It is not inferred from geographic distance.
+- **Total nearby BirdWeather detections** counts distinct returned BirdWeather observations. Repeats from one station increase this total but that station counts only once.
+
+BirdWeather diagnostic log lines contain the stable station ID, species, approximate distance, detection time, and whether the station was excluded. Identify birdpi's own station after activity occurs:
+
+```bash
+docker logs --tail 500 bird-corroborator 2>&1 | grep 'BirdWeather observation'
+```
+
+Find the station ID associated with birdpi, then set it in `.env`. Multiple IDs are comma-separated:
+
+```env
+BIRDWEATHER_EXCLUDED_STATION_IDS=12345
+# or: BIRDWEATHER_EXCLUDED_STATION_IDS=12345,67890
+```
+
+Rebuild/restart after changing `.env`. Existing stored matches from excluded IDs are filtered when APIs and pages calculate evidence; future responses are discarded before scoring and persistence.
 
 ## First deployment on birdpi
 
@@ -46,8 +69,8 @@ Install Docker Engine and its Compose plugin using Docker's Debian instructions 
 ```bash
 ssh jkinsey@birdpi
 cd /home/jkinsey
-git clone git@github.com:jamesckinsey/Bird-Corroborator.git bird-corroborator
-cd /home/jkinsey/bird-corroborator
+git clone git@github.com:jamesckinsey/Bird-Corroborator.git Bird-Corroborator
+cd /home/jkinsey/Bird-Corroborator
 cp .env.example .env
 chmod 600 .env
 docker port birdnet-go
@@ -70,7 +93,7 @@ The healthcheck calls `/api/v1/status` inside the container. A response proves t
 
 ```bash
 # Status and health
-cd /home/jkinsey/bird-corroborator
+cd ~/Bird-Corroborator
 docker compose ps
 docker inspect --format '{{.State.Health.Status}}' bird-corroborator
 curl -fsS http://localhost:8000/api/v1/status
@@ -95,7 +118,7 @@ None of these commands targets the independently managed `birdnet-go` container.
 Back up the Corroborator database, then pull and rebuild. The brief `down` used for a consistent SQLite copy affects only Corroborator:
 
 ```bash
-cd /home/jkinsey/bird-corroborator
+cd ~/Bird-Corroborator
 docker compose down
 cp -a /home/jkinsey/bird-corroborator-data/birds.db \
   "/home/jkinsey/bird-corroborator-data/birds.db.backup-$(date +%F-%H%M%S)"
@@ -112,7 +135,7 @@ Database initialization is additive. Corroborator-owned data survives image and 
 Record the current revision before an upgrade with `git rev-parse HEAD`. To roll code back without touching BirdNET-Go or Corroborator data:
 
 ```bash
-cd /home/jkinsey/bird-corroborator
+cd ~/Bird-Corroborator
 git log --oneline -10
 git checkout PREVIOUS_GOOD_COMMIT
 docker compose up -d --build
@@ -122,7 +145,7 @@ curl -fsS http://localhost:8000/api/v1/status
 After diagnosis, return with `git switch master`. Restore a database backup only when a release specifically documents an incompatible migration:
 
 ```bash
-cd /home/jkinsey/bird-corroborator
+cd ~/Bird-Corroborator
 docker compose down
 cp -a /home/jkinsey/bird-corroborator-data/birds.db.backup-TIMESTAMP \
   /home/jkinsey/bird-corroborator-data/birds.db
@@ -141,6 +164,14 @@ docker port birdnet-go
 curl -v http://127.0.0.1:PORT/api/v2/ping
 ls -ld /home/jkinsey/bird-corroborator-data
 df -h /home/jkinsey/bird-corroborator-data
+```
+
+The concise production checks are:
+
+```bash
+docker ps
+curl -fsS http://localhost:8000/api/v1/status
+docker logs --tail 100 bird-corroborator
 ```
 
 If startup reports permission denied for `/data`, ensure the host directory is owned by the account running Docker:
@@ -167,9 +198,14 @@ Run maintenance in the deployed container:
 ```bash
 docker compose exec bird-corroborator python -m app.cli catchup --hours 72
 docker compose exec bird-corroborator python -m app.cli images-reset
+# Preview, then optionally purge historical rows below the configured threshold
+docker compose exec bird-corroborator python -m app.cli purge-low-confidence
+docker compose exec bird-corroborator python -m app.cli purge-low-confidence --yes
 ```
 
 `images-reset` moves cached images to a timestamped backup within the Corroborator data directory and queues fresh retrieval; it does not delete or alter BirdNET-Go media.
+
+Species images are requested asynchronously from Wikimedia Commons with an application-identifying User-Agent, stored under `/data/species-images`, and served locally. Successful images and attribution metadata are reused from cache. Failures—including HTTP 403—leave the local placeholder in place and are retried only after the configured backoff.
 
 ## Runtime behavior
 

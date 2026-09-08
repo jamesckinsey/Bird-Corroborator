@@ -10,7 +10,7 @@ class WikimediaCommonsProvider:
     name="Wikimedia Commons"
     def __init__(self,settings,transport=None):
         self.s=settings
-        self.http=httpx.AsyncClient(timeout=15,transport=transport,headers={"User-Agent":"BirdCorroborator/1.0 (home dashboard image cache)"})
+        self.http=httpx.AsyncClient(timeout=15,transport=transport,headers={"User-Agent":"Bird-Corroborator/1.0 (species image enrichment; https://github.com/jamesckinsey/Bird-Corroborator)"})
     async def close(self):await self.http.aclose()
     async def find(self,scientific_name):
         params={"action":"query","format":"json","formatversion":2,"generator":"search","gsrsearch":scientific_name,"gsrnamespace":6,"gsrlimit":1,"prop":"imageinfo","iiprop":"url|mime|extmetadata","iiurlwidth":self.s.image_thumbnail_width,"iiextmetadatafilter":"Artist|Credit|LicenseShortName|LicenseUrl|AttributionRequired"}

@@ -14,6 +14,7 @@ class StatusOut(BaseModel):
     pending_enrichments:int=0;retry_enrichments:int=0;process_memory_mb:float|None=None;process_cpu_percent:float|None=None;system_load_1m:float|None=None;cpu_temperature_c:float|None=None;available_memory_mb:float|None=None;system_uptime_seconds:float|None=None
 class SpeciesSummary(BaseModel):
     species_common:str;species_scientific:str;local_detection_count:int;highest_birdnet_confidence:float;latest_detection:datetime;best_corroboration_level:str|None;nearby_unique_stations:int
+    nearby_total_detections:int=0;best_corroboration_score:int|None=None
     image_url:str|None=None;image_attribution:str|None=None;image_source:str|None=None
 class NearbySummary(BaseModel):
     species_common:str;species_scientific:str;nearby_unique_stations:int;nearest_station_miles:float;most_recent_detection:datetime
