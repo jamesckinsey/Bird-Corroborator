@@ -27,6 +27,7 @@ class IngestionService:
             state.value=max(newest,since).isoformat();db.merge(state);db.commit()
         self.status.birdnet_connected=True; self.status.last_birdnet_poll=datetime.now(timezone.utc)
         log.info("BirdNET poll complete: %s detections, %s new",len(rows),len(new))
+        if new:getattr(self,"invalidate_summary",lambda:None)()
         return len(new)
     async def run(self):
         log.info("ingestion worker started")

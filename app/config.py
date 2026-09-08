@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     image_retry_hours: int = Field(24, ge=1, le=720)
     image_thumbnail_width: int = Field(640, ge=160, le=1280)
     image_max_bytes: int = Field(5_000_000, ge=100_000, le=20_000_000)
+    species_summary_cache_seconds: int = Field(60, ge=10, le=300)
     local_timezone: str = "America/New_York"
     database_url: str = "sqlite:///data/birds.db"
     log_level: str = "INFO"

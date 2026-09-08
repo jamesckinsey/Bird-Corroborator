@@ -203,7 +203,9 @@ docker compose exec bird-corroborator python -m app.cli images-reset
 
 `images-reset` moves cached images to a timestamped backup within the Corroborator data directory and queues fresh retrieval; it does not delete or alter BirdNET-Go media.
 
-Species images are requested asynchronously from Wikimedia Commons with an application-identifying User-Agent, stored under `/data/species-images`, and served locally. Successful images and attribution metadata are reused from cache. Failures—including HTTP 403—leave the local placeholder in place and are retried only after the configured backoff.
+Species images are requested asynchronously from Wikimedia Commons with an application-identifying User-Agent. The background worker creates a maximum-320-pixel-wide WebP thumbnail without upscaling and stores it persistently under `/data/species-images`. Existing legacy cached source images are converted one at a time by the same worker. Dashboard requests serve only optimized local thumbnails; until one exists they render the local placeholder immediately. Attribution metadata remains in SQLite and is available as image title text. Failures—including HTTP 403—leave the placeholder in place and are retried only after the configured backoff.
+
+Species Summary aggregation is cached in memory for 60 seconds by default (`SPECIES_SUMMARY_CACHE_SECONDS`). New local detections, completed corroboration, and completed image optimization invalidate it immediately. Page requests never call BirdWeather, Wikimedia, download images, or resize images.
 
 ## Runtime behavior
 

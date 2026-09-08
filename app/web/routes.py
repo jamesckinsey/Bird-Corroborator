@@ -1,4 +1,5 @@
 from datetime import datetime,timezone
+import time
 from pathlib import Path
 from fastapi import APIRouter,Depends,HTTPException,Query,Request
 from fastapi.responses import Response
@@ -13,10 +14,15 @@ from app.images.presentation import image_fields,image_map
 templates=Jinja2Templates(directory=str(Path(__file__).resolve().parents[1]/"templates"))
 router=APIRouter()
 def context(request,**values):return {"request":request,"now":datetime.now(timezone.utc),**values}
+def cached_summaries(request,session):
+    cache=request.app.state.summary_cache;now=time.monotonic()
+    if cache["species"] is None or now>=cache["expires"]:
+        cache["species"]=summaries(request,session);cache["expires"]=now+request.app.state.settings.species_summary_cache_seconds
+    return cache["species"]
 
 @router.get("/")
 async def dashboard(request:Request,session:Session=Depends(db)):
-    return templates.TemplateResponse(request,"species.html",context(request,species=summaries(request,session),settings=request.app.state.settings,score_band=score_band))
+    return templates.TemplateResponse(request,"species.html",context(request,species=cached_summaries(request,session),settings=request.app.state.settings,score_band=score_band))
 
 @router.get("/detections")
 async def detections_page(request:Request,limit:int=Query(50,ge=1,le=200),session:Session=Depends(db)):
@@ -25,7 +31,7 @@ async def detections_page(request:Request,limit:int=Query(50,ge=1,le=200),sessio
 
 @router.get("/species")
 async def species_page(request:Request,session:Session=Depends(db)):
-    return templates.TemplateResponse(request,"species.html",context(request,species=summaries(request,session),settings=request.app.state.settings,score_band=score_band))
+    return templates.TemplateResponse(request,"species.html",context(request,species=cached_summaries(request,session),settings=request.app.state.settings,score_band=score_band))
 
 @router.get("/system")
 async def system_page(request:Request,session:Session=Depends(db)):

@@ -20,7 +20,7 @@ def score_band(score:int|None)->str:
     if score>=3:return "low"
     return "very-low"
 def summary_sort_key(item:SpeciesSummary):
-    return (item.best_corroboration_score is not None,item.best_corroboration_score or -1,item.local_detection_count,item.latest_detection)
+    return (item.display_corroboration_score is not None,item.display_corroboration_score or -1,item.highest_birdnet_confidence,item.local_detection_count,item.latest_detection)
 @router.get("/today",response_model=list[SpeciesSummary])
 async def today(request:Request,session:Session=Depends(db)):
     return summaries(request,session)

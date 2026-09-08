@@ -2,23 +2,20 @@
 {% block title %}Today’s species · Bird Corroborator{% endblock %}
 {% block content %}
 <section class="summary-heading">
-  <div class="page-heading"><p class="eyebrow">TODAY</p><h1>Species summary</h1><p>{{ species|length }} species heard locally today.</p></div>
-  <aside class="score-legend" aria-label="Corroboration score legend">
-    <strong>Corroboration score (1–10)</strong>
-    <div><span class="legend-dot score-very-high"></span>9–10 Very high <span class="legend-dot score-high"></span>7–8 High <span class="legend-dot score-medium"></span>5–6 Medium <span class="legend-dot score-low"></span>3–4 Low <span class="legend-dot score-very-low"></span>1–2 Very low <span class="legend-dot score-pending"></span>Pending</div>
-  </aside>
+  <div class="page-heading"><p class="eyebrow">TODAY</p><h1>Species Summary</h1><p>{{ species|length }} species heard locally today.</p></div>
+  <aside class="score-legend" aria-label="Corroboration score legend"><strong>Corroboration score (1–10)</strong><span>9–10 Very high · 7–8 High · 5–6 Medium · 3–4 Low · 1–2 Very low · Pending</span></aside>
 </section>
 <section class="species-list" aria-label="Species corroboration summary">
 {% for s in species %}
   {% set band=score_band(s.display_corroboration_score) %}
   <article class="species-row score-{{ band }}">
-    <img class="species-row-image" src="{{ s.image_url }}" alt="Representative image of {{ s.species_common }}" loading="lazy">
-    <div class="species-identity"><h2>{{ s.species_common }}</h2><p>{{ s.species_scientific }}</p>{% if s.image_attribution %}<small class="attribution">Image: {{ s.image_attribution }}</small>{% endif %}</div>
-    <div class="species-metric metric-local"><strong>{{ s.local_detection_count }}</strong><span>local detections today</span></div>
-    <div class="species-metric metric-evidence"><strong>{{ s.nearby_unique_stations }} stations <small>({{ settings.birdweather_radius_miles|round|int }} mi)</small></strong><span>{{ s.nearby_total_detections }} total ({{ settings.birdweather_lookback_hours }}h)</span></div>
-    <div class="species-metric metric-confidence"><strong>{{ (s.highest_birdnet_confidence*100)|round|int }}%</strong><span>highest BirdNET confidence</span></div>
-    <div class="species-metric metric-latest"><strong>{{ s.latest_detection.strftime('%-I:%M %p') }}</strong><span>latest detection</span></div>
-    <div class="score-cell"><span class="score-pill score-{{ band }}">{{ s.display_corroboration_score if s.display_corroboration_score is not none else '—' }}</span><small>{{ s.best_corroboration_level|replace('_',' ')|title if s.best_corroboration_level else 'Pending' }}</small></div>
+    <figure class="species-thumbnail"><img src="{{ s.image_url }}" alt="Representative image of {{ s.species_common }}" width="320" height="220" {% if loop.index > 3 %}loading="lazy"{% endif %}{% if s.image_attribution %} title="{{ s.image_attribution }}"{% endif %}></figure>
+    <div class="species-summary-copy">
+      <div class="species-title"><h2>{{ s.species_common }}</h2><p>{{ s.species_scientific }}</p></div>
+      <p class="evidence-line"><strong>BirdNET {{ (s.highest_birdnet_confidence*100)|round|int }}%</strong><span>·</span><strong>{{ s.local_detection_count }}</strong> local detection{{ '' if s.local_detection_count == 1 else 's' }}<span>·</span>Latest <strong>{{ s.latest_detection.strftime('%-I:%M %p') }}</strong></p>
+      <p class="evidence-line"><strong>{{ s.nearby_unique_stations }}</strong> independent station{{ '' if s.nearby_unique_stations == 1 else 's' }}<span>·</span><strong>{{ s.nearby_total_detections }}</strong> detection{{ '' if s.nearby_total_detections == 1 else 's' }} within {{ settings.birdweather_radius_miles|round|int }} mi / last {{ settings.birdweather_lookback_hours }}h</p>
+    </div>
+    <div class="score-cell"><strong>{% if s.display_corroboration_score is not none %}{{ s.display_corroboration_score }}<small>/10</small>{% else %}PENDING{% endif %}</strong>{% if s.best_corroboration_level %}<span>{{ s.best_corroboration_level|replace('_',' ') }}</span>{% endif %}</div>
   </article>
 {% else %}<div class="empty">No species detected today.</div>{% endfor %}
 </section>

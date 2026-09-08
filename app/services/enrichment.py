@@ -27,6 +27,7 @@ class EnrichmentService:
                     for k,v in values.items():setattr(old,k,v)
                 else: db.add(CorroborationResult(local_detection_id=d.id,**values))
                 d.enrichment_state=EnrichmentState.COMPLETE; d.enrichment_error=None; d.next_enrichment_at=None; db.commit()
+            getattr(self,"invalidate_summary",lambda:None)()
         except Exception as exc:
             with self.sessions() as db:
                 d=db.get(LocalDetection,detection_id); d.enrichment_state=EnrichmentState.TEMPORARILY_UNAVAILABLE; d.enrichment_error=str(exc)[:500]

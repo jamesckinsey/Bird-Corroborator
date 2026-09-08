@@ -37,17 +37,17 @@ async def test_low_medium_and_high_confidence_all_ingest_enrich_and_appear(setti
         assert all(value in detections for value in ("35%","65%","95%"))
         assert all(name in landing for name in ("Low Bird","Medium Bird","High Bird"))
 
-def species_summary(name,score,count=1,minutes=0):
-    return SpeciesSummary(species_common=name,species_scientific=f"{name} scientific",local_detection_count=count,highest_birdnet_confidence=.8,latest_detection=datetime.now(timezone.utc)+timedelta(minutes=minutes),best_corroboration_level=None if score is None else "LIKELY",best_corroboration_score=score,display_corroboration_score=display_score(score),nearby_unique_stations=0,nearby_total_detections=0)
+def species_summary(name,score,count=1,minutes=0,confidence=.8):
+    return SpeciesSummary(species_common=name,species_scientific=f"{name} scientific",local_detection_count=count,highest_birdnet_confidence=confidence,latest_detection=datetime.now(timezone.utc)+timedelta(minutes=minutes),best_corroboration_level=None if score is None else "LIKELY",best_corroboration_score=score,display_corroboration_score=display_score(score),nearby_unique_stations=0,nearby_total_detections=0)
 
 def test_display_score_mapping_and_background_bands():
     assert [(raw,display_score(raw)) for raw in (0,1,14,15,34,35,54,55,74,75,94,95,100,None)]==[(0,1),(1,1),(14,1),(15,2),(34,3),(35,4),(54,5),(55,6),(74,7),(75,8),(94,9),(95,10),(100,10),(None,None)]
     assert [(value,score_band(value)) for value in (10,9,8,7,6,5,4,3,2,1,None)]==[(10,"very-high"),(9,"very-high"),(8,"high"),(7,"high"),(6,"medium"),(5,"medium"),(4,"low"),(3,"low"),(2,"very-low"),(1,"very-low"),(None,"pending")]
 
 def test_species_sort_score_then_count_then_latest_with_pending_last():
-    values=[species_summary("Pending",None,99,99),species_summary("Low",40,20,20),species_summary("High",90),species_summary("Tie older",70,2,0),species_summary("Tie newer",70,2,1),species_summary("Tie count",70,3,-1)]
+    values=[species_summary("Pending",None,99,99,1),species_summary("Low",40,20,20),species_summary("High",90),species_summary("Tie lower confidence",74,20,20,.7),species_summary("Tie higher confidence",70,1,-1,.9)]
     ordered=sorted(values,key=summary_sort_key,reverse=True)
-    assert [item.species_common for item in ordered]==["High","Tie count","Tie newer","Tie older","Low","Pending"]
+    assert [item.species_common for item in ordered]==["High","Tie higher confidence","Tie lower confidence","Low","Pending"]
 
 @pytest.mark.asyncio
 async def test_excluded_station_contributes_no_evidence_and_duplicates_count_correctly(settings):
