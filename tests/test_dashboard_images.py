@@ -21,12 +21,12 @@ class FakeImages:
     async def close(self):pass
 
 @pytest.mark.asyncio
-async def test_dashboard_pages_and_placeholder_do_not_call_birdweather(settings):
+async def test_dashboard_pages_and_placeholder_do_not_call_external_services(settings,caplog):
     class CountingBW(FakeBW):
         def __init__(self):super().__init__();self.calls=0
         async def lookup(self,*args):self.calls+=1;return []
         async def lookup_all(self):self.calls+=1;return []
-    bw=CountingBW();app=create_app(settings,FakeBN([detection()]),bw,FakeImages());await app.state.ingestion.poll(True)
+    bw=CountingBW();images=FakeImages();app=create_app(settings,FakeBN([detection()]),bw,images);await app.state.ingestion.poll(True);caplog.set_level("INFO")
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as client:
         for path in ("/","/detections","/species","/system","/static/images/placeholder-bird.svg"):
             response=await client.get(path);assert response.status_code==200,path
@@ -37,7 +37,8 @@ async def test_dashboard_pages_and_placeholder_do_not_call_birdweather(settings)
         assert 'class="species-row score-pending"' in body and "species-grid" not in body and "species-card" not in body
         assert "Corroboration score (1–10)" in body and "independent stations" in body and "detections within 10 mi / last 24h" in body
         assert (await client.get("/detections?limit=201")).status_code==422
-    assert bw.calls==0
+    assert bw.calls==0 and images.find_calls==0 and images.download_calls==0
+    assert "Dashboard rendered: route=/" in caplog.text
 
 @pytest.mark.asyncio
 async def test_species_summary_cache_invalidates_for_new_detection(settings):

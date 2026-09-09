@@ -1,5 +1,5 @@
 from datetime import datetime,timezone
-import time
+import logging,time
 from pathlib import Path
 from fastapi import APIRouter,Depends,HTTPException,Query,Request
 from fastapi.responses import Response
@@ -13,16 +13,17 @@ from app.db.models import LocalDetection,SpeciesImage
 from app.images.presentation import image_fields,image_map
 templates=Jinja2Templates(directory=str(Path(__file__).resolve().parents[1]/"templates"))
 router=APIRouter()
+log=logging.getLogger(__name__)
 def context(request,**values):return {"request":request,"now":datetime.now(timezone.utc),**values}
 def cached_summaries(request,session):
     cache=request.app.state.summary_cache;now=time.monotonic()
     if cache["species"] is None or now>=cache["expires"]:
-        cache["species"]=summaries(request,session);cache["expires"]=now+request.app.state.settings.species_summary_cache_seconds
-    return cache["species"]
+        cache["species"]=summaries(request,session);cache["expires"]=now+request.app.state.settings.species_summary_cache_seconds;return cache["species"],False
+    return cache["species"],True
 
 @router.get("/")
 async def dashboard(request:Request,session:Session=Depends(db)):
-    return templates.TemplateResponse(request,"species.html",context(request,species=cached_summaries(request,session),settings=request.app.state.settings,score_band=score_band))
+    started=time.perf_counter();species,cache_hit=cached_summaries(request,session);response=templates.TemplateResponse(request,"species.html",context(request,species=species,settings=request.app.state.settings,score_band=score_band));log.info("Dashboard rendered: route=/ duration=%.3fs species=%s summary_cache_hit=%s",time.perf_counter()-started,len(species),cache_hit);return response
 
 @router.get("/detections")
 async def detections_page(request:Request,limit:int=Query(50,ge=1,le=200),session:Session=Depends(db)):
@@ -31,7 +32,7 @@ async def detections_page(request:Request,limit:int=Query(50,ge=1,le=200),sessio
 
 @router.get("/species")
 async def species_page(request:Request,session:Session=Depends(db)):
-    return templates.TemplateResponse(request,"species.html",context(request,species=cached_summaries(request,session),settings=request.app.state.settings,score_band=score_band))
+    started=time.perf_counter();species,cache_hit=cached_summaries(request,session);response=templates.TemplateResponse(request,"species.html",context(request,species=species,settings=request.app.state.settings,score_band=score_band));log.info("Dashboard rendered: route=/species duration=%.3fs species=%s summary_cache_hit=%s",time.perf_counter()-started,len(species),cache_hit);return response
 
 @router.get("/system")
 async def system_page(request:Request,session:Session=Depends(db)):

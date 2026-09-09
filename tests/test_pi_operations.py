@@ -39,20 +39,27 @@ def test_additive_migration_preserves_existing_record(settings):
     initialize_database(engine)
     with sessions() as db:assert db.scalar(select(LocalDetection.source_detection_id))=="preserved"
 
-def test_compose_isolated_from_birdnet_go():
+def test_compose_is_architecture_neutral_and_uses_configurable_storage():
     compose=Path("docker-compose.yml").read_text()
     assert "container_name: bird-corroborator" in compose
-    assert "platform: linux/arm64" in compose
+    assert "platform:" not in compose
     assert "restart: unless-stopped" in compose
     assert '"8000:8000"' in compose
-    assert "/home/jkinsey/birdnet-go-app/data:/birdnet-data:ro" in compose
-    assert "/home/jkinsey/bird-corroborator-data:/data" in compose
+    assert "${CORROBORATOR_DATA_DIR:-./data}:/data" in compose
+    assert "/home/jkinsey/" not in compose and "/birdnet-data" not in compose
     assert "birdnet-go:" not in compose
     assert "/api/v1/status" in compose
 
-def test_container_build_is_arm64_portable_and_has_healthcheck():
+def test_container_build_is_multi_arch_and_has_healthcheck():
     dockerfile=Path("Dockerfile").read_text()
     assert "python:3.11-slim-bookworm" in dockerfile
     assert "/api/v1/status" in dockerfile
     assert "uvicorn" in dockerfile
     assert "systemctl" not in dockerfile and "systemd" not in dockerfile
+
+def test_missing_linux_thermal_interface_is_optional(monkeypatch):
+    original=Path.read_text
+    def read_text(path,*args,**kwargs):
+        if str(path).startswith("/sys/class/thermal/"):raise FileNotFoundError
+        return original(path,*args,**kwargs)
+    monkeypatch.setattr(Path,"read_text",read_text);values=MetricsSampler().sample();assert values["cpu_temperature_c"] is None

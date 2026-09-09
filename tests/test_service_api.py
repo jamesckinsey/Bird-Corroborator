@@ -64,3 +64,10 @@ async def test_today_timezone_boundary(settings):
         insert_detection(db,detection("old",now-timedelta(days=2)));insert_detection(db,detection("new",now))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as c:
         body=(await c.get("/api/v1/detections/today")).json();assert [x["source_detection_id"] for x in body]==["new"]
+
+def test_existing_checkpoint_skips_startup_catchup(settings):
+    app=create_app(settings,FakeBN([]),FakeBW());assert app.state.ingestion.startup_requires_catchup()
+    with app.state.sessions() as db:
+        from app.db.models import AppState
+        db.add(AppState(key="birdnet_checkpoint_at",value=datetime.now(timezone.utc).isoformat()));db.commit()
+    assert not app.state.ingestion.startup_requires_catchup()

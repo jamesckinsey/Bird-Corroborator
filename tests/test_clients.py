@@ -12,6 +12,12 @@ async def test_birdnet_recent_accepts_top_level_list(settings):
     client=BirdNetClient(settings,httpx.MockTransport(handler));rows=await client.recent(datetime(2026,9,3,tzinfo=timezone.utc));await client.close()
     assert [row.source_detection_id for row in rows]==["8"]
 @pytest.mark.asyncio
+async def test_birdnet_uses_configured_remote_lan_base_url(settings):
+    settings=settings.model_copy(update={"birdnet_base_url":"http://birdnet-remote.test:8080"});seen=[]
+    async def handler(req):seen.append(req.url);return httpx.Response(200,json=[])
+    client=BirdNetClient(settings,httpx.MockTransport(handler));await client.recent(datetime(2026,9,3,tzinfo=timezone.utc));await client.close()
+    assert seen[0].host=="birdnet-remote.test" and seen[0].port==8080 and seen[0].path==settings.birdnet_recent_path
+@pytest.mark.asyncio
 @pytest.mark.parametrize("payload",[{"results":[]},{"detections":[]},{"data":{"items":[]}}])
 async def test_birdnet_recent_accepts_compatible_object_wrappers(settings,payload):
     async def handler(req):return httpx.Response(200,json=payload)

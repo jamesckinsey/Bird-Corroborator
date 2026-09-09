@@ -36,16 +36,18 @@ class IngestionService:
         log.info("BirdNET poll complete: %s detections, %s new",len(rows),len(new))
         if new:getattr(self,"invalidate_summary",lambda:None)()
         return len(new)
+    def startup_requires_catchup(self):
+        with self.sessions() as db:return db.get(AppState,"birdnet_checkpoint_at") is None
     async def run(self):
         log.info("ingestion worker started")
-        first=True
+        first=True;needs_catchup=self.startup_requires_catchup()
         while True:
             try:
-                if first and load_is_high(self.s):
+                if first and needs_catchup and load_is_high(self.s):
                     log.info("System load high: startup catch-up deferred; polling recent detections only")
                     await self.poll(catchup=False)
                 else:
-                    await self.poll(catchup=first);first=False
+                    await self.poll(catchup=first and needs_catchup);first=False
             except asyncio.CancelledError: raise
             except Exception as exc:log.warning("BirdNET poll failed; retrying next cycle: %s",exc)
             await asyncio.sleep(self.s.birdnet_poll_seconds)
