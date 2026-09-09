@@ -58,7 +58,9 @@ class BirdWeatherClient:
             if distance>self.s.birdweather_radius_miles: continue
             dt=datetime.fromisoformat(n["timestamp"].replace("Z","+00:00")); sp=n["species"]; station=n.get("station") or {};station_id=str(station.get("id","unknown"))
             species_name=sp.get("scientificName") or scientific_name or sp.get("commonName") or "Unknown"
-            log.info("BirdWeather observation: station_id=%s species=%s distance=%.1fmi detected_at=%s excluded=%s",station_id,species_name,distance,dt.isoformat(),station_id in self.s.excluded_station_ids)
+            log.debug("BirdWeather observation: station_id=%s species=%s distance=%.1fmi detected_at=%s excluded=%s",station_id,species_name,distance,dt.isoformat(),station_id in self.s.excluded_station_ids)
             if station_id in self.s.excluded_station_ids:continue
             result.append(BirdWeatherDetection(source_detection_id=str(n["id"]),station_id=station_id,station_name=station.get("name"),species_common=sp.get("commonName") or common_name or scientific_name or "Unknown",species_scientific=species_name,detected_at=dt,latitude=coords["lat"],longitude=coords["lon"],distance_miles=distance,source_confidence=n.get("confidence")))
+        stations={item.station_id for item in result}
+        log.info("BirdWeather lookup complete: species=%s stations=%s observations=%s radius=%.1fmi lookback=%sh",scientific_name or "all",len(stations),len(result),self.s.birdweather_radius_miles,self.s.birdweather_lookback_hours)
         return result

@@ -17,7 +17,7 @@ from app.services.enrichment import EnrichmentService
 from app.services.ingestion import IngestionService
 @dataclass
 class Health:
-    birdnet_connected:bool=False;birdweather_available:bool=False;last_birdnet_poll:datetime|None=None;last_birdweather_request:datetime|None=None
+    birdnet_connected:bool=False;birdnet_ingestion_ok:bool=False;birdnet_ingestion_error:str|None=None;last_birdnet_response:datetime|None=None;birdweather_available:bool=False;last_birdnet_poll:datetime|None=None;last_birdweather_request:datetime|None=None
 def create_app(settings=None,birdnet=None,birdweather=None,image_provider=None):
     s=settings or get_settings(); logging.basicConfig(level=s.log_level,format="%(asctime)s %(levelname)s %(name)s %(message)s")
     engine=make_engine(s);sessions=make_session_factory(engine);initialize_database(engine)

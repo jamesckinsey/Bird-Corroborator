@@ -11,6 +11,7 @@ class DetectionOut(BaseModel):
 class DetectionDetail(DetectionOut): nearby_matches:list[MatchOut]
 class StatusOut(BaseModel):
     status:str;birdnet_connected:bool;birdweather_available:bool;last_birdnet_poll:datetime|None;last_birdweather_request:datetime|None;database_ok:bool
+    birdnet_ingestion_ok:bool=False;birdnet_ingestion_error:str|None=None;last_birdnet_response:datetime|None=None
     pending_enrichments:int=0;retry_enrichments:int=0;process_memory_mb:float|None=None;process_cpu_percent:float|None=None;system_load_1m:float|None=None;cpu_temperature_c:float|None=None;available_memory_mb:float|None=None;system_uptime_seconds:float|None=None
 class SpeciesSummary(BaseModel):
     species_common:str;species_scientific:str;local_detection_count:int;highest_birdnet_confidence:float;latest_detection:datetime;best_corroboration_level:str|None;nearby_unique_stations:int

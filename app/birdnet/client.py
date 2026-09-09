@@ -1,12 +1,25 @@
-import hashlib, json
+import hashlib, json,logging
 from datetime import datetime, timezone
 import httpx
 from app.birdnet.models import BirdNetDetection
 from app.config import Settings
+log=logging.getLogger(__name__)
+
+def detection_rows(payload):
+    if isinstance(payload,list):return payload
+    if not isinstance(payload,dict):raise ValueError(f"BirdNET response must be a list or object, got {type(payload).__name__}")
+    rows=None
+    for key in ("detections","results","data"):
+        if key in payload:
+            rows=payload[key];break
+    if isinstance(rows,dict):
+        rows=next((rows[key] for key in ("items","detections","results") if key in rows),None)
+    if not isinstance(rows,list):raise ValueError("BirdNET response object does not contain a detections/results list")
+    return rows
 
 class BirdNetClient:
     def __init__(self, settings: Settings, transport=None):
-        self.s=settings; self.http=httpx.AsyncClient(base_url=settings.birdnet_base_url, timeout=15, transport=transport)
+        self.s=settings; self.http=httpx.AsyncClient(base_url=settings.birdnet_base_url, timeout=15, transport=transport);self.last_http_success_at=None
     async def close(self): await self.http.aclose()
     async def ping(self):
         r=await self.http.get(self.s.birdnet_ping_path); r.raise_for_status(); return True
@@ -15,16 +28,16 @@ class BirdNetClient:
             # The documented recent endpoint is the cheapest normal poll. Stable IDs and
             # the persisted timestamp checkpoint make its overlap safe and idempotent.
             r=await self.http.get(self.s.birdnet_recent_path,params={"limit":self.s.birdnet_page_size,"includeWeather":"false"})
-            r.raise_for_status();payload=r.json();rows=payload.get("detections",payload.get("data",payload if isinstance(payload,list) else []))
-            if isinstance(rows,dict):rows=rows.get("items",rows.get("detections",[]))
-            return [item for row in rows if (item:=self._parse(row)).detected_at>=since]
+            r.raise_for_status();self.last_http_success_at=datetime.now(timezone.utc)
+            try:rows=detection_rows(r.json());return [item for row in rows if (item:=self._parse(row)).detected_at>=since]
+            except Exception as exc:log.warning("BirdNET recent response could not be parsed: %s",exc);raise
         # Catch-up uses the date-ranged historical endpoint. The path remains configurable.
         params={"start_date":since.date().isoformat(),"limit":self.s.birdnet_page_size,"offset":0,"sort":"desc"}
         out=[]
         for _page in range(20):
-            r=await self.http.get(self.s.birdnet_detections_path, params=params); r.raise_for_status(); payload=r.json()
-            rows=payload.get("detections", payload.get("data", payload if isinstance(payload,list) else []))
-            if isinstance(rows,dict): rows=rows.get("items",rows.get("detections",[]))
+            r=await self.http.get(self.s.birdnet_detections_path, params=params); r.raise_for_status();self.last_http_success_at=datetime.now(timezone.utc)
+            try:rows=detection_rows(r.json())
+            except Exception as exc:log.warning("BirdNET catch-up response could not be parsed: %s",exc);raise
             for row in rows:
                 item=self._parse(row)
                 if item.detected_at >= since: out.append(item)

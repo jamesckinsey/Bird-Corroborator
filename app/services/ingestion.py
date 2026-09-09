@@ -17,7 +17,14 @@ class IngestionService:
             since=now-timedelta(seconds=self.s.birdnet_poll_seconds*2)
         else:
             saved=datetime.fromisoformat(checkpoint.value.replace("Z","+00:00"));since=saved-timedelta(seconds=5)
-        rows=await self.bn.recent(since,catchup=catchup); new=[]
+        try:rows=await self.bn.recent(since,catchup=catchup)
+        except Exception as exc:
+            response_at=getattr(self.bn,"last_http_success_at",None)
+            if response_at and response_at>=now:self.status.birdnet_connected=True;self.status.last_birdnet_response=response_at
+            else:self.status.birdnet_connected=False
+            self.status.birdnet_ingestion_ok=False;self.status.birdnet_ingestion_error=str(exc)[:500]
+            raise
+        new=[]
         with self.sessions() as db:
             for item in rows:
                 row,created=insert_detection(db,item)
@@ -25,7 +32,7 @@ class IngestionService:
             newest=max((x.detected_at for x in rows),default=now)
             state=db.get(AppState,"birdnet_checkpoint_at") or AppState(key="birdnet_checkpoint_at",value=newest.isoformat())
             state.value=max(newest,since).isoformat();db.merge(state);db.commit()
-        self.status.birdnet_connected=True; self.status.last_birdnet_poll=datetime.now(timezone.utc)
+        self.status.birdnet_connected=True;self.status.birdnet_ingestion_ok=True;self.status.birdnet_ingestion_error=None;self.status.last_birdnet_response=getattr(self.bn,"last_http_success_at",None) or datetime.now(timezone.utc);self.status.last_birdnet_poll=datetime.now(timezone.utc)
         log.info("BirdNET poll complete: %s detections, %s new",len(rows),len(new))
         if new:getattr(self,"invalidate_summary",lambda:None)()
         return len(new)
@@ -40,5 +47,5 @@ class IngestionService:
                 else:
                     await self.poll(catchup=first);first=False
             except asyncio.CancelledError: raise
-            except Exception as exc: self.status.birdnet_connected=False; log.warning("BirdNET poll failed; retrying next cycle: %s",exc)
+            except Exception as exc:log.warning("BirdNET poll failed; retrying next cycle: %s",exc)
             await asyncio.sleep(self.s.birdnet_poll_seconds)

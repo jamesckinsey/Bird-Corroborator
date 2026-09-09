@@ -7,6 +7,22 @@ async def test_birdnet_parse_and_catchup(settings):
     async def handler(req):return httpx.Response(200,json={"detections":[{"id":7,"timestamp":"2026-09-03T18:00:00Z","commonName":"Robin","scientificName":"Turdus migratorius","confidence":.91,"clipName":"x.wav"}]})
     c=BirdNetClient(settings,httpx.MockTransport(handler));rows=await c.recent(datetime(2026,9,3,tzinfo=timezone.utc),catchup=True);await c.close();assert rows[0].source_detection_id=="7" and rows[0].audio_reference=="x.wav"
 @pytest.mark.asyncio
+async def test_birdnet_recent_accepts_top_level_list(settings):
+    async def handler(req):return httpx.Response(200,json=[{"id":8,"timestamp":"2026-09-03T18:00:00Z","commonName":"Robin","scientificName":"Turdus migratorius","confidence":.72}])
+    client=BirdNetClient(settings,httpx.MockTransport(handler));rows=await client.recent(datetime(2026,9,3,tzinfo=timezone.utc));await client.close()
+    assert [row.source_detection_id for row in rows]==["8"]
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload",[{"results":[]},{"detections":[]},{"data":{"items":[]}}])
+async def test_birdnet_recent_accepts_compatible_object_wrappers(settings,payload):
+    async def handler(req):return httpx.Response(200,json=payload)
+    client=BirdNetClient(settings,httpx.MockTransport(handler));assert await client.recent(datetime(2026,9,3,tzinfo=timezone.utc))==[];await client.close()
+@pytest.mark.asyncio
+async def test_birdnet_malformed_response_warns_instead_of_being_swallowed(settings,caplog):
+    async def handler(req):return httpx.Response(200,json={"unexpected":[]})
+    caplog.set_level("WARNING");client=BirdNetClient(settings,httpx.MockTransport(handler))
+    with pytest.raises(ValueError):await client.recent(datetime(2026,9,3,tzinfo=timezone.utc))
+    await client.close();assert "BirdNET recent response could not be parsed" in caplog.text
+@pytest.mark.asyncio
 async def test_birdnet_outage(settings):
     async def handler(req):return httpx.Response(503)
     c=BirdNetClient(settings,httpx.MockTransport(handler))
@@ -35,6 +51,7 @@ async def test_birdweather_excludes_stable_station_id_and_logs_diagnostics(setti
         if calls==1:return httpx.Response(200,json={"data":{"searchSpecies":{"nodes":[{"id":"1","commonName":"Robin","scientificName":"Turdus migratorius"}]}}})
         node=lambda id_,station:{"id":id_,"timestamp":"2026-09-03T18:00:00Z","confidence":.8,"coords":{"lat":40.01,"lon":-75},"species":{"commonName":"Robin","scientificName":"Turdus migratorius"},"station":{"id":station,"name":"Yard"}}
         return httpx.Response(200,json={"data":{"detections":{"nodes":[node("9","self-1"),node("10","other")]}}})
-    caplog.set_level("INFO");client=BirdWeatherClient(settings,httpx.MockTransport(handler));rows=await client.lookup("Turdus migratorius","Robin");await client.close()
+    caplog.set_level("DEBUG");client=BirdWeatherClient(settings,httpx.MockTransport(handler));rows=await client.lookup("Turdus migratorius","Robin");await client.close()
     assert [row.station_id for row in rows]==["other"]
     assert "station_id=self-1" in caplog.text and "excluded=True" in caplog.text
+    assert "BirdWeather lookup complete: species=Turdus migratorius stations=1 observations=1" in caplog.text

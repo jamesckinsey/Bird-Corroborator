@@ -17,4 +17,4 @@ async def status(request:Request,session:Session=Depends(db)):
     metrics=request.app.state.metrics.sample()
     recent_poll=state.last_birdnet_poll and (datetime.now(timezone.utc)-state.last_birdnet_poll).total_seconds()<=request.app.state.settings.birdnet_poll_seconds*2+30
     connected=bool(state.birdnet_connected or recent_poll)
-    return StatusOut(status="ok" if ok else "degraded",birdnet_connected=connected,birdweather_available=state.birdweather_available,last_birdnet_poll=state.last_birdnet_poll,last_birdweather_request=state.last_birdweather_request,database_ok=ok,pending_enrichments=pending or 0,retry_enrichments=retries or 0,**metrics)
+    return StatusOut(status="ok" if ok and state.birdnet_ingestion_ok else "degraded",birdnet_connected=connected,birdnet_ingestion_ok=state.birdnet_ingestion_ok,birdnet_ingestion_error=state.birdnet_ingestion_error,last_birdnet_response=state.last_birdnet_response,birdweather_available=state.birdweather_available,last_birdnet_poll=state.last_birdnet_poll,last_birdweather_request=state.last_birdweather_request,database_ok=ok,pending_enrichments=pending or 0,retry_enrichments=retries or 0,**metrics)

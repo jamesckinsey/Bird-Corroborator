@@ -46,11 +46,13 @@ Important defaults include a 300-second poll interval, 12-hour startup catch-up,
 - An **independent station** is a unique BirdWeather `station.id`, excluding IDs configured in `BIRDWEATHER_EXCLUDED_STATION_IDS`. It is not inferred from geographic distance.
 - **Total nearby BirdWeather detections** counts distinct returned BirdWeather observations. Repeats from one station increase this total but that station counts only once.
 
-BirdWeather diagnostic log lines contain the stable station ID, species, approximate distance, detection time, and whether the station was excluded. Identify birdpi's own station after activity occurs:
+At normal INFO level, BirdWeather emits one concise summary per lookup with species, independent station count, observation count, radius, and lookback. Per-observation diagnostics—including stable station ID, species, approximate distance, detection time, and exclusion state—are available only at DEBUG to avoid noisy production logs. To identify birdpi's own station, temporarily set `LOG_LEVEL=DEBUG` in `.env`, rebuild/restart Corroborator, allow activity to occur, then inspect:
 
 ```bash
 docker logs --tail 500 bird-corroborator 2>&1 | grep 'BirdWeather observation'
 ```
+
+Return `LOG_LEVEL=INFO` afterward and run `docker compose up -d` again.
 
 Find the station ID associated with birdpi, then set it in `.env`. Multiple IDs are comma-separated:
 
@@ -90,7 +92,7 @@ The Today landing page is an information-dense species summary sorted by corrobo
 
 ## Validation and routine operations
 
-The healthcheck calls `/api/v1/status` inside the container. A response proves the HTTP service and SQLite status route operate; BirdNET-Go or BirdWeather may still be reported as temporarily degraded in the JSON.
+The healthcheck calls `/api/v1/status` inside the container. A response proves the HTTP service and SQLite status route operate. BirdNET HTTP availability and successful ingestion/parsing are reported separately: an HTTP 200 with malformed data remains `birdnet_connected: true` while `birdnet_ingestion_ok` is false and the concise parsing error is exposed. `last_birdnet_poll` advances only after a fully processed poll. BirdWeather availability and its latest successful lookup are tracked independently.
 
 ```bash
 # Status and health

@@ -15,6 +15,7 @@ class EnrichmentService:
             d.enrichment_attempts+=1; db.commit(); scientific=d.species_scientific; common=d.species_common; detected_at=d.detected_at
         try:
             matches=[m for m in await self.bw.lookup(scientific,common) if m.station_id not in self.s.excluded_station_ids]
+            if self.status:self.status.birdweather_available=True;self.status.last_birdweather_request=datetime.now(timezone.utc)
             with self.sessions() as db:
                 d=db.get(LocalDetection,detection_id); db.execute(delete(BirdWeatherMatch).where(BirdWeatherMatch.local_detection_id==d.id))
                 for m in matches:
@@ -50,6 +51,7 @@ class EnrichmentService:
     async def refresh_nearby(self):
         if load_is_high(self.s):return 0
         observations=[m for m in await self.bw.lookup_all() if m.station_id not in self.s.excluded_station_ids]
+        if self.status:self.status.birdweather_available=True;self.status.last_birdweather_request=datetime.now(timezone.utc)
         with self.sessions() as db:
             for m in observations:
                 db.merge(NearbyObservation(source_detection_id=m.source_detection_id,station_id=m.station_id,station_name=m.station_name,species_common=m.species_common,species_scientific=m.species_scientific,detected_at=m.detected_at,distance_miles=m.distance_miles,source_confidence=m.source_confidence))

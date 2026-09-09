@@ -29,6 +29,25 @@ async def test_ingestion_idempotency_restart_and_serialization(settings):
         assert (await c.get("/api/v1/status")).json()["database_ok"]
     with app.state.sessions() as db:assert len(list(db.scalars(select(LocalDetection))))==1
 @pytest.mark.asyncio
+async def test_real_recent_list_poll_imports_without_duplication_and_updates_health(settings):
+    payload=[{"id":77,"timestamp":datetime.now(timezone.utc).isoformat(),"commonName":"Robin","scientificName":"Turdus migratorius","confidence":.61}]
+    async def handler(req):return httpx.Response(200,json=payload)
+    from app.birdnet.client import BirdNetClient
+    birdnet=BirdNetClient(settings,httpx.MockTransport(handler));app=create_app(settings,birdnet,FakeBW());assert await app.state.ingestion.poll()==1;first_poll=app.state.health.last_birdnet_poll;assert await app.state.ingestion.poll()==0
+    assert app.state.health.birdnet_connected and app.state.health.birdnet_ingestion_ok and app.state.health.last_birdnet_poll>=first_poll
+    with app.state.sessions() as db:assert len(list(db.scalars(select(LocalDetection))) )==1
+    await birdnet.close()
+@pytest.mark.asyncio
+async def test_http_200_parse_failure_reports_available_but_ingestion_unhealthy(settings):
+    async def handler(req):return httpx.Response(200,json={"unexpected":[]})
+    from app.birdnet.client import BirdNetClient
+    birdnet=BirdNetClient(settings,httpx.MockTransport(handler));app=create_app(settings,birdnet,FakeBW())
+    with pytest.raises(ValueError):await app.state.ingestion.poll()
+    assert app.state.health.birdnet_connected and not app.state.health.birdnet_ingestion_ok and app.state.health.last_birdnet_poll is None
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as client:
+        body=(await client.get("/api/v1/status")).json();assert body["birdnet_connected"] is True and body["birdnet_ingestion_ok"] is False and body["status"]=="degraded"
+    await birdnet.close()
+@pytest.mark.asyncio
 async def test_failed_enrichment_retained_and_retry(settings):
     bw=FakeBW(error=RuntimeError("offline"));app=create_app(settings,FakeBN([detection()]),bw);await app.state.ingestion.poll(True);await app.state.enrichment.retry_due()
     with app.state.sessions() as db:
