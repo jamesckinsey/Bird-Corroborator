@@ -32,6 +32,8 @@ async def test_dashboard_pages_and_placeholder_do_not_call_birdweather(settings)
             response=await client.get(path);assert response.status_code==200,path
         body=(await client.get("/")).text
         assert "Species Summary" in body and "BirdNET 82%" in body and "placeholder-bird.svg" in body
+        assert 'href="/detections"' not in body and 'href="/species"' not in body
+        assert 'href="/"' in body and 'href="/system"' in body
         assert 'class="species-row score-pending"' in body and "species-grid" not in body and "species-card" not in body
         assert "Corroboration score (1–10)" in body and "independent stations" in body and "detections within 10 mi / last 24h" in body
         assert (await client.get("/detections?limit=201")).status_code==422
